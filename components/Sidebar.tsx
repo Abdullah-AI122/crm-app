@@ -2,29 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import api from "@/lib/axios";
 import { apiRequest } from "@/lib/api";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { getUser, logout, AuthUser } from "@/lib/auth";
-import { RiAddLine, RiHome9Fill } from "react-icons/ri";
+import { RiAddLine } from "react-icons/ri";
 import {
-    HiOutlineRectangleGroup,
-    HiOutlineSquares2X2,
-    HiOutlineChevronUpDown,
-    HiOutlineArrowRightOnRectangle,
-    HiOutlineXMark,
-    HiOutlineExclamationTriangle,
-    HiOutlineChevronDown,
+    HiOutlineXMark, HiOutlineExclamationTriangle,
 } from "react-icons/hi2";
-import { BsCheck, BsClipboardPulse, BsPersonWorkspace } from "react-icons/bs";
-import { MdWorkspacesOutline } from "react-icons/md";
-import { TbClipboardFilled, TbDoorExit } from "react-icons/tb";
+import { BsCheck } from "react-icons/bs";
+import { TbCards } from "react-icons/tb";
+import Image from "next/image";
+import logo from "@/app/assets/Logo.png";
+import { FaChevronDown } from "react-icons/fa";
 
+import { Blocks, Building2 } from "lucide-react";
+import Link from "next/link";
 interface Workspace {
     _id: string;
     name: string;
+    totalBoards?: number;
 }
-
 interface Board {
     _id: string;
     name: string;
@@ -47,10 +44,9 @@ export default function Sidebar() {
     const [creating, setCreating] = useState(false);
     const [createError, setCreateError] = useState("");
 
-    const [open, setOpen] = useState(false);
+    const [openModule, setOpenModule] = useState(true);
 
-    const isAuthPage = pathname ? pathname.startsWith("/login") || pathname.startsWith("/register") : false;
-    const isHomePage = pathname === "/";
+    const [open, setOpen] = useState(false);
 
     useEffect(() => {
         if (typeof window !== "undefined") {
@@ -59,13 +55,11 @@ export default function Sidebar() {
     }, []);
 
     useEffect(() => {
-        if (!isAuthPage) {
-            loadWorkspaces();
-        }
+        loadWorkspaces();
     }, [pathname]);
 
     useEffect(() => {
-        if (!isAuthPage && workspaceId) {
+        if (workspaceId) {
             loadBoards(workspaceId);
         } else {
             setBoards([]);
@@ -80,7 +74,14 @@ export default function Sidebar() {
             const data = await response.json();
 
             if (response.ok && data.workspaces) {
-                const list = data.workspaces.map((item: any) => item.workspace).filter(Boolean);
+                const list = data.workspaces
+                    .map((item: any) => item.workspace)
+                    .filter(Boolean)
+                    .map((ws: any) => ({
+                        _id: ws._id,
+                        name: ws.name,
+                        totalBoards: ws.totalBoards ?? 0,
+                    }));
                 setWorkspaces(list);
 
                 if (list.length > 0) {
@@ -169,207 +170,245 @@ export default function Sidebar() {
         }
     }
 
-    if (isAuthPage || isHomePage) {
-        return null;
-    }
 
     return (
-        <aside className="w-72 h-screen border-r border-slate-200 bg-[#0D1B2A] flex flex-col flex-shrink-0 sticky top-0">
-            <div className="p-5 border-b border-slate-600">
+        <aside className="w-82 h-screen bg-white flex flex-col flex-shrink-0 sticky top-0 ">
+            <div className="px-5 pt-5 pb-2">
                 <div
-                    onClick={() => router.push("/dashboard")}
-                    className="flex items-center gap-2 mb-5 cursor-pointer group"
+                    onClick={() => router.push("/Home")}
+                    className="flex items-center gap-2 mb-4 cursor-pointer group"
                 >
+                    <div className="flex gap-4 items-center">
+                        <div className="bg-white shadow-sm border border-zinc-300 p-2 rounded-xl w-15 h-15 flex justify-center items-center">
+                            <Image src={logo} alt="Logo" priority />
+                        </div>
+                        <div>
+                            <p className="text-[#000000] text-lg font-bold font-google-sans flex items-center gap-1">
+                                Collaborate
+                                <span className="bg-gradient-to-r from-[#6C5CE7] via-[#00CEC9] to-[#FF7675] bg-clip-text text-transparent font-extrabold text-xl">
+                                    X
+                                </span>
+                            </p>
+                            <p className="text-xs font-google-sans">
+                                Modern CRM For Agile Teams
+                            </p>
+                        </div>
+                    </div>
 
-                    <h2 className="font-semibold text-white transition-colors font-jost tracking-wider pb-2">
-                        CRM
-                    </h2>
                 </div>
+                <div className="flex items-center justify-between py-2">
+                    <Link href="/Apps"
+                        className="flex items-center gap-2 cursor-pointer"
+                    >
+                        <div className="p-1 bg-[#6C5CE7] rounded-md">
+                            <Blocks size={22} className="text-white" />
+                        </div>
 
-                <label className="block text-sm font-semibold  tracking-wider mb-2 font-dmsans flex items-center gap-2">
-                    <RiHome9Fill className="h-4 w-4" />
-                    Workspaces
+                        <span className="text-sm font-bold text-black font-google-sans text-zinc-800">
+                            Apps
+                        </span>
+                    </Link>
+
+                </div>
+                <label className="flex items-center justify-between">
+                    <button
+                        onClick={() => setOpen(!open)}
+                        className="flex items-center gap-2 cursor-pointer"
+                    >
+                        <div className="p-1 bg-[#FF7675] rounded-md">
+                            <Building2 size={22} className="text-white" />
+                        </div>
+
+                        <span className="text-sm font-bold text-black font-google-sans text-zinc-800">
+                            WorkSpaces
+                        </span>
+
+                        <FaChevronDown
+                            className={`w-3 h-3 text-black transition-transform ${open ? "rotate-180" : ""
+                                }`}
+                        />
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setShowCreateModal(true)}
+                        className="p-0.5 rounded-sm hover:bg-zinc-100 transition cursor-pointer"
+                    >
+                        <RiAddLine size={20} />
+                    </button>
                 </label>
 
                 {loadingWorkspaces ? (
-                    <div className="h-9 rounded bg-slate-600 animate-pulse" />
+                    <div className="h-9 rounded bg-white/10 shimmer" />
                 ) : workspaces.length === 0 ? (
-                    <div className="text-sm text-slate-400 py-2 font-dmsans">No workspaces found</div>
-                ) : (
-                    <div className="flex items-center gap-1.5">
-                        <div className="relative flex-1">
-                            <button
-                                onClick={() => setOpen(!open)}
-                                className="w-full flex items-center justify-between rounded border border-slate-600 text-white  px-4 py-2 transition cursor-pointer"
-                            >
-                                <span className="text-sm font-dmsans">
-                                    {workspaces.find(w => w._id === workspaceId)?.name || "Select Workspace"}
-                                </span>
-
-                                <HiOutlineChevronDown
-                                    className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""
-                                        }`}
-                                />
-                            </button>
-
-                            {open && (
-                                <div className="absolute left-0 mt-1 w-full rounded bg-[#0D1B2A] border border-slate-800 shadow-lg z-50 overflow-hidden">
-                                    {workspaces.map((workspace) => (
-                                        <button
-                                            key={workspace._id}
-                                            onClick={() => {
-                                                handleWorkspaceChange(workspace._id);
-                                                setOpen(false);
-                                            }}
-                                            className={`w-full px-4 py-3 text-left text-sm  transition cursor-pointer ${workspace._id === workspaceId
-                                                ? "text-white font-dmsans font-bold "
-                                                : "text-white/70 font-dmsans "
-                                                }`}
-                                        >
-                                            {workspace.name}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        <button
-                            onClick={() => setShowCreateModal(true)}
-                            className="flex items-center justify-center w-9 h-9 rounded border border-slate-600  text-white transition cursor-pointer"
-                            title="New Workspace"
-                        >
-                            <RiAddLine className="w-5 h-5" />
-                        </button>
+                    <div className="text-sm text-slate-400 py-2 font-google-sans">
+                        No workspace
                     </div>
+                ) : (
+                    open && (
+                        <div className=" ml-8">
+                            {workspaces.map((workspace) => (
+                                <button
+                                    key={workspace._id}
+                                    onClick={() => handleWorkspaceChange(workspace._id)}
+                                    className={`w-full flex items-center justify-between px-2 py-0.5 transition cursor-pointer ${workspace._id === workspaceId
+                                        ? "text-black font-bold font-google-sans"
+                                        : "text-gray-500 hover:text-black font-google-sans text-sm"
+                                        }`}
+                                >
+                                    <span className="truncate font-google-sans text-sm">
+                                        {workspace.name}
+                                    </span>
+
+                                    {/* Board count */}
+                                    <span className="text-xs">
+                                        {workspace.totalBoards ?? 0}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )
                 )}
             </div>
 
-            <div className="px-3 pb-3 pt-4 flex-1 overflow-y-auto">
-                <div className="flex items-center gap-1.5 px-3 mb-2">
-                    <TbClipboardFilled className="w-4 h-4" />
-                    <h3 className="text-md tracking-wider font-dmsans font-semibold">
-                        Boards
-                    </h3>
+            <div className="px-3 pb-3 flex-1 overflow-y-auto">
+                <div className="flex items-center gap-1.5 px-2">
+                    <button className="flex gap-1 items-center cursor-pointer" onClick={() => setOpenModule(!openModule)}>
+                        <div className="bg-[#00B894] p-1 rounded-md">
+                            <TbCards className="text-white " size={22} />
+                        </div>
+                        <h3 className="text-sm text-[#0D1B2A] font-bold tracking-wider font-google-sans">
+                            Modules
+                        </h3>
+                        <FaChevronDown
+                            className={`w-3 h-3 text-black transition-transform ${openModule ? "rotate-180" : ""
+                                }`}
+                        />
+                    </button>
                 </div>
 
                 {showCreateModal && (
-                    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-90 px-5">
-                        <div className="bg-white rounded shadow-lg w-full max-w-sm p-6 border border-slate-200">
-                            <div className="flex items-center justify-between mb-4">
-                                <h2 className="text-base font-semibold text-[#172B4D]">
-                                    Create New Workspace
-                                </h2>
+                    <div className="fixed inset-0 flex items-center justify-center z-50 px-4 animate-in fade-in duration-200">
+                        <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200 ">
+
+                            {/* Header */}
+                            <div className="flex items-center justify-between mb-5 ">
+                                <div>
+                                    <h2 className="text-lg font-bold text-slate-900 font-google-sans leading-snug">
+                                        Create Workspace
+                                    </h2>
+                                    <p className="text-xs text-zinc-500 font-medium mt-0.5">
+                                        Set up a new space to organize boards and team projects.
+                                    </p>
+                                </div>
                                 <button
                                     onClick={() => {
                                         setShowCreateModal(false);
                                         setCreateError("");
                                         setNewWorkspaceName("");
                                     }}
-                                    className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+                                    className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-slate-100 transition cursor-pointer"
                                     aria-label="Close"
                                 >
                                     <HiOutlineXMark className="w-5 h-5" />
                                 </button>
                             </div>
 
+                            {/* Error Banner */}
                             {createError && (
-                                <div className="flex items-start gap-2 bg-red-50 text-red-600 text-sm p-3 rounded mb-3">
-                                    <HiOutlineExclamationTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                                    {createError}
+                                <div className="flex items-start gap-2.5 bg-red-50/80 border border-red-100 text-red-600 text-xs font-medium p-3 rounded-xl mb-4">
+                                    <HiOutlineExclamationTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
+                                    <span>{createError}</span>
                                 </div>
                             )}
 
-                            <input
-                                type="text"
-                                value={newWorkspaceName}
-                                onChange={(e) => setNewWorkspaceName(e.target.value)}
-                                placeholder="Workspace name"
-                                autoFocus
-                                className="w-full border border-slate-200 rounded px-3 py-2.5 text-sm text-slate-800 mb-4 outline-none focus:border-[#6C5CE7] focus:ring-2 focus:ring-[#6C5CE7]/15 transition"
-                            />
+                            {/* Input Field */}
+                            <div className="mb-6">
+                                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                                    Workspace Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newWorkspaceName}
+                                    onChange={(e) => setNewWorkspaceName(e.target.value)}
+                                    placeholder="e.g. Sales & Marketing"
+                                    autoFocus
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-zinc-400 outline-none focus:bg-white focus:border-[#6C5CE7] focus:ring-4 focus:ring-[#6C5CE7]/10 transition font-medium"
+                                />
+                            </div>
 
-                            <div className="flex justify-end gap-2">
+                            {/* Action Buttons */}
+                            <div className="flex items-center justify-end gap-2.5">
                                 <button
                                     onClick={() => {
                                         setShowCreateModal(false);
                                         setCreateError("");
                                         setNewWorkspaceName("");
                                     }}
-                                    className="px-4 py-2 text-sm font-medium bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition cursor-pointer"
+                                    className="px-4 py-2 text-sm font-semibold text-zinc-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/70 rounded-xl transition cursor-pointer"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={handleCreateWorkspace}
-                                    disabled={creating}
-                                    className="px-4 py-2 text-sm font-medium bg-[#6C5CE7] text-white rounded hover:bg-[#5b4bd6] disabled:opacity-50 transition cursor-pointer"
+                                    disabled={creating || !newWorkspaceName.trim()}
+                                    className="px-4 py-2 text-sm font-semibold bg-[#6C5CE7] hover:bg-[#5b4cc4] text-white rounded-xl shadow-sm shadow-[#6C5CE7]/20 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
                                 >
-                                    {creating ? "Creating..." : "Create"}
+                                    {creating ? "Creating..." : "Create Workspace"}
                                 </button>
                             </div>
+
                         </div>
                     </div>
                 )}
 
-                {loadingBoards ? (
-                    <div className="space-y-1.5 px-1">
-                        {[...Array(3)].map((_, i) => (
-                            <div key={i} className="h-8 rounded bg-slate-600 animate-pulse" />
-                        ))}
-                    </div>
-                ) : boards.length === 0 ? (
-                    <div className="text-sm text-slate-400 py-2 px-3 font-dmsans">No boards available</div>
-                ) : (
-                    <div className="space-y-0.5">
-                        {boards.map((board) => {
-                            const active = pathname.includes(`/board/${board._id}`);
+                {openModule && (
+                    <>
+                        {loadingBoards ? (
+                            <div className="space-y-1.5">
+                                {[...Array(3)].map((_, i) => (
+                                    <div
+                                        key={i}
+                                        className="relative h-8 overflow-hidden rounded bg-white/10 shimmer"
+                                    />
+                                ))}
+                            </div>
+                        ) : boards.length === 0 ? (
+                            <div className="text-sm text-slate-400 py-2 ml-12 font-dmsans">No Module available</div>
+                        ) : (
+                            <div className="space-y-0.5 ml-5">
+                                {boards.map((board) => {
+                                    const active = pathname.includes(`/board/${board._id}`);
 
-                            return (
-                                <button
-                                    key={board._id}
-                                    onClick={() =>
-                                        router.push(`/workspace/${workspaceId}/board/${board._id}`)
-                                    }
-                                    className={`flex items-center gap-2 w-full rounded px-3 py-2 text-sm transition-colors cursor-pointer ${active
-                                        ? "text-white font-bold"
-                                        : "text-white/40 hover:bg-slate-600"
-                                        }`}
-                                >
-                                    <span className="w-4 flex justify-center">
-                                        {active && <BsCheck className="w-4 h-4 " />}
-                                    </span>
+                                    return (
+                                        <button
+                                            key={board._id}
+                                            onClick={() =>
+                                                router.push(`/workspace/${workspaceId}/board/${board._id}`)
+                                            }
+                                            className={`flex items-center justify-between gap-2 w-full rounded px-3 py-2 text-sm transition-colors cursor-pointer ${active
+                                                ? "font-bold font-google-sans"
+                                                : "text-gray-500 hover:text-black font-google-sans text-sm"
+                                                }`}
+                                        >
 
-                                    <span className="truncate">{board.name}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                                            <div className="flex items-center justify-center gap-1 pl-4 font-dmsans">
+                                                <span className="truncate">{board.name}</span>
+
+                                            </div>
+                                            <span className="flex justify-center">
+                                                {active && <BsCheck className="w-4 h-4 " />}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
 
-            {user && (
-                <div className="p-4 border-t border-slate-600 flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-[#415A77] text-white flex font-dmsans items-center justify-center font-semibold text-sm flex-shrink-0">
-                            {user.firstName ? user.firstName[0].toUpperCase() : "U"}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold text-white truncate font-dmsans">
-                                {user.firstName}
-                            </p>
-                            <p className="text-xs text-white/70 truncate font-dmsans">
-                                {user.email}
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={handleLogout}
-                        title="Logout"
-                        className="p-1.5 text-slate-400 hover:white hover:bg-slate-800 rounded cursor-pointer transition-colors flex-shrink-0"
-                    >
-                        <TbDoorExit className="w-4.5 h-4.5" />
-                    </button>
-                </div>
-            )}
+
         </aside>
     );
 }

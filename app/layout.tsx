@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { DM_Sans, Geist, Geist_Mono, Jost, Oswald } from "next/font/google";
+import { DM_Sans, Geist, Geist_Mono, Google_Sans, Istok_Web, Jost, Oswald } from "next/font/google";
 import { WorkspaceProvider } from "@/context/WorkspaceContext";
-import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const google_sans = Google_Sans({
+  variable: "--font-google-sans",
   subsets: ["latin"],
 });
 
@@ -29,8 +33,13 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const istokweb = Istok_Web({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-istokweb",
+})
 export const metadata: Metadata = {
-  title: "CRM",
+  title: "Collaborate x",
   description: "CRM Application",
 };
 
@@ -42,15 +51,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${oswald.variable} ${geistMono.variable} ${DmSans.variable} ${jost.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${oswald.variable} ${geistMono.variable} ${DmSans.variable} ${jost.variable} ${istokweb.variable} ${google_sans.variable} h-full antialiased`}
     >
       <body
         className="min-h-full flex flex-col"
-        suppressHydrationWarning
       >
         <WorkspaceProvider>
           <div className="flex min-h-screen w-full">
-            <Sidebar />
             <main className="flex-1 min-w-0 overflow-auto">
               {children}
             </main>

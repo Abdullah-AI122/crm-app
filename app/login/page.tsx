@@ -1,26 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { saveToken, saveUser } from "../../lib/auth";
+import logo from "@/app/assets/Logo.png";
+import Image from "next/image";
+import { Eye, EyeOff, ArrowRight, Loader2, AlertCircle } from "lucide-react";
+import Link from "next/link";
+
+const slides = [
+    { heading: "Collaborate in real time", desc: "Work together with your team without missing a beat." },
+    { heading: "Track every project", desc: "Keep tasks, files, and deadlines organized in one place." },
+    { heading: "Stay in sync", desc: "See updates the moment they happen, wherever you are." }
+];
 
 export default function LoginPage() {
     const router = useRouter();
-
-    const [formData, setFormData] = useState({
-        email: "",
-        password: ""
-    });
-
+    const [formData, setFormData] = useState({ email: "", password: "" });
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [slide, setSlide] = useState(0);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setSlide((prev) => (prev + 1) % slides.length);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, []);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFormData({
-            ...formData,
-            [e.target.name]: e.target.value
-        });
+        setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -31,9 +41,7 @@ export default function LoginPage() {
         try {
             const response = await fetch("http://localhost:4040/api/auth/login", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(formData)
             });
 
@@ -45,247 +53,137 @@ export default function LoginPage() {
                 return;
             }
 
-            // Save credentials
             saveToken(data.token);
             saveUser(data.user);
-
-            // Redirect
-            router.push("/dashboard");
+            router.push("/Home");
         } catch (err: any) {
             setError("Cannot connect to the server. Please verify your backend is running.");
             setLoading(false);
         }
     };
 
+    const handleOAuth = (provider: "google" | "apple") => {
+        window.location.href = `http://localhost:4040/api/auth/${provider}`;
+    };
+
     return (
-        <div className="
-            min-h-screen
-            flex
-            items-center
-            justify-center
-            bg-slate-50
-            px-5
-        ">
-            <div className="
-                w-full
-                max-w-md
-                bg-white
-                rounded-2xl
-                border
-                border-slate-200
-                shadow-sm
-                p-8
-            ">
-                <div className="mb-8 text-center">
-                    <div className="
-                        mx-auto
-                        mb-4
-                        flex
-                        h-12
-                        w-12
-                        items-center
-                        justify-center
-                        rounded-xl
-                        bg-black
-                        text-white
-                        text-xl
-                        font-bold
-                    ">
-                        C
+        <section className="w-full h-full bg-[#D9D9D9] p-3">
+            <div className="flex gap-3 w-full h-full">
+                <div className="hidden lg:flex lg:w-[45%] relative flex-col items-center justify-center border bg-[#FF7675] rounded-2xl">
+                    <Link href="/" className="cursor-pointer">
+                        <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white shadow-sm">
+                            <Image src={logo} alt="Logo" priority />
+                        </div>
+                    </Link>
+
+                    <div className="mt-6 max-w-xs text-center">
+                        <h2 className="text-lg font-semibold font-google-sans">{slides[slide].heading}</h2>
+                        <p className="mt-2 text-sm font-google-sans">{slides[slide].desc}</p>
                     </div>
 
-                    <h1 className="
-                        text-3xl
-                        font-semibold
-                        text-slate-900
-                    ">
-                        Welcome Back
-                    </h1>
-
-                    <p className="
-                        mt-2
-                        text-sm
-                        text-slate-500
-                    ">
-                        Login to your CRM workspace
-                    </p>
+                    <div className="absolute bottom-10 flex gap-2">
+                        {slides.map((_, i) => (
+                            <span key={i} onClick={() => setSlide(i)} className={`h-1.5 w-1.5 rounded-full cursor-pointer ${i === slide ? "bg-white" : "bg-black"}`} />
+                        ))}
+                    </div>
                 </div>
 
-                {error && (
-                    <div className="
-                        mb-5
-                        rounded-lg
-                        border
-                        border-red-200
-                        bg-red-50
-                        px-4
-                        py-3
-                        text-sm
-                        text-red-600
-                        text-center
-                    ">
-                        {error}
-                    </div>
-                )}
-
-                <form
-                    onSubmit={handleSubmit}
-                    className="space-y-5"
-                >
-                    <div>
-                        <label className="
-                            mb-2
-                            block
-                            text-sm
-                            font-medium
-                            text-slate-700
-                        ">
-                            Email Address
-                        </label>
-
-                        <input
-                            name="email"
-                            type="email"
-                            placeholder="you@example.com"
-                            value={formData.email}
-                            onChange={handleChange}
-                            required
-                            disabled={loading}
-                            className="
-                                w-full
-                                rounded-lg
-                                border
-                                border-slate-200
-                                px-3
-                                py-2.5
-                                text-black
-                                placeholder:text-black
-                                outline-none
-                                focus:border-black
-                                disabled:opacity-60
-                            "
-                        />
+                <div className="w-full lg:w-[55%] flex flex-col px-6 sm:px-16 py-8 rounded-xl bg-white flex-1">
+                    <div className="flex items-center justify-between">
+                        <Link href="/" className="cursor-pointer">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white shadow-sm border border-zinc-300">
+                                <Image src={logo} alt="Logo" priority />
+                            </div>
+                        </Link>
+                        
+                        <p className="text-sm text-slate-600">
+                            Don't have an account?{" "}
+                            <span onClick={() => router.push("/register")} className="font-semibold text-[#ff7675] underline cursor-pointer">Sign Up</span>
+                        </p>
                     </div>
 
-                    <div>
-                        <div className="
-                            mb-2
-                            flex
-                            justify-between
-                        ">
-                            <label className="
-                                text-sm
-                                font-medium
-                                text-slate-700
-                            ">
-                                Password
-                            </label>
+                    <div className="flex-1 flex items-center justify-center font-google-sans">
+                        <div className="w-full max-w-sm">
+                            <div className="mb-8 text-center">
+                                <h1 className="text-2xl font-bold text-slate-900 flex gap-1 items-center">Welcome back to Collaborate
+                                    <span className="font-extrabold text-3xl font-jost">
+                                        X
+                                    </span></h1>
+                                <p className="mt-2 text-sm text-slate-500">Please enter your details to sign in your account</p>
+                            </div>
 
-                            <span className="
-                                cursor-pointer
-                                text-sm
-                                text-slate-500
-                            ">
-                                Forgot password?
-                            </span>
-                        </div>
+                            {error && (
+                                <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-[#FF7675]/30 bg-[#FF7675]/10 px-4 py-3 text-sm text-[#FF7675] text-center">
+                                    <AlertCircle className="h-4 w-4 shrink-0" />
+                                    {error}
+                                </div>
+                            )}
 
-                        <div className="relative">
-                            <input
-                                name="password"
-                                type={showPassword ? "text" : "password"}
-                                placeholder="Enter password"
-                                value={formData.password}
-                                onChange={handleChange}
-                                required
-                                disabled={loading}
-                                className="
-                                    w-full
-                                    rounded-lg
-                                    border
-                                    border-slate-200
-                                    px-3
-                                    py-2.5
-                                    pr-16
-                                    text-black
-                                    placeholder:text-black
-                                    outline-none
-                                    focus:border-black
-                                    disabled:opacity-60
-                                "
-                            />
+                            <div className="space-y-3">
+                                <button type="button" onClick={() => handleOAuth("google")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60">
+                                    <svg className="h-4 w-4" viewBox="0 0 24 24">
+                                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.07 5.07 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+                                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.25 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0012 23z" />
+                                        <path fill="#FBBC05" d="M5.84 14.09A6.6 6.6 0 015.5 12c0-.73.13-1.43.34-2.09V7.07H2.18A11 11 0 001 12c0 1.78.43 3.46 1.18 4.93l3.66-2.84z" />
+                                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 002.18 7.07l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z" />
+                                    </svg>
+                                    Continue with Google
+                                </button>
 
-                            <button
-                                type="button"
-                                disabled={loading}
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="
-                                    absolute
-                                    right-3
-                                    top-1/2
-                                    -translate-y-1/2
-                                    text-sm
-                                    text-slate-600
-                                    disabled:opacity-50
-                                "
-                            >
-                                {showPassword ? "Hide" : "Show"}
-                            </button>
+                                <button type="button" onClick={() => handleOAuth("apple")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60">
+                                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="black">
+                                        <path d="M16.365 1.43c0 1.14-.417 2.06-1.25 2.87-.833.79-1.833 1.25-2.998 1.16-.146-1.11.375-2.27 1.19-3.06.813-.79 2.146-1.36 3.058-1.29zm3.395 15.65c-.5 1.15-1.083 2.28-1.916 3.36-.917 1.17-1.833 2.34-3.25 2.36-1.375.03-1.833-.79-3.417-.79-1.583 0-2.083.77-3.416.82-1.375.05-2.416-1.24-3.333-2.4-1.833-2.36-3.25-6.68-1.333-9.6 0.917-1.44 2.583-2.36 4.416-2.39 1.334-.02 2.584.87 3.417.87.833 0 2.333-1.07 3.917-.91 0.666.03 2.55.26 3.75 1.99-.1.07-2.25 1.28-2.22 3.86.03 3.1 2.75 4.13 2.78 4.15z" />
+                                    </svg>
+                                    Continue with Apple
+                                </button>
+                            </div>
+
+                            <div className="my-6 flex items-center gap-4">
+                                <div className="h-px flex-1 bg-zinc-400" />
+                                <span className="text-xs text-slate-600">Or sign in with</span>
+                                <div className="h-px flex-1 bg-zinc-400" />
+                            </div>
+
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Email</label>
+                                    <input name="email" type="email" placeholder="John@gmail.com" value={formData.email} onChange={handleChange} required disabled={loading} className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black focus:ring-none disabled:opacity-60" />
+                                </div>
+
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-semibold text-slate-800">Password</label>
+                                    <div className="relative">
+                                        <input name="password" type={showPassword ? "text" : "password"} placeholder="Enter your password" value={formData.password} onChange={handleChange} required minLength={8} disabled={loading} className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 pr-10 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black focus:ring-none disabled:opacity-60" />
+                                        <button type="button" disabled={loading} onClick={() => setShowPassword(!showPassword)} className="absolute cursor-pointer right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-black disabled:opacity-50">
+                                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <button type="submit" disabled={loading} className="w-full mt-2 flex items-center justify-center gap-2 rounded-lg bg-[#FF7675] py-3 text-sm font-semibold  transition hover:bg-[#FF7675] disabled:bg-slate-400 disabled:cursor-not-allowed cursor-pointer font-google-sans">
+                                    {loading ? (
+                                        <Loader2 className="h-5 w-5 animate-spin" />
+                                    ) : (
+                                        <>Sign In</>
+                                    )}
+                                </button>
+                            </form>
+
+                            <p className="mt-5 text-center text-sm">
+                                <span className="cursor-pointer text-slate-600 underline hover:text-[#ff7675]">Forget Password?</span>
+                            </p>
                         </div>
                     </div>
 
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="
-                            w-full
-                            rounded-lg
-                            bg-black
-                            py-3
-                            text-sm
-                            font-medium
-                            text-white
-                            transition
-                            hover:bg-slate-800
-                            disabled:bg-slate-400
-                            disabled:cursor-not-allowed
-                            flex
-                            items-center
-                            justify-center
-                        "
-                    >
-                        {loading ? (
-                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                        ) : (
-                            "Login"
-                        )}
-                    </button>
-                </form>
-
-                <p className="
-                    mt-6
-                    text-center
-                    text-sm
-                    text-slate-500
-                ">
-                    Don't have an account?
-                    <span 
-                        onClick={() => router.push("/register")}
-                        className="
-                            ml-1
-                            cursor-pointer
-                            font-medium
-                            text-black
-                            hover:underline
-                        "
-                    >
-                        Register
-                    </span>
-                </p>
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span>© 2026 Collaborate X</span>
+                        <div className="flex gap-4">
+                            <span className="cursor-pointer hover:text-[#6C5CE7]">Privacy Policy</span>
+                            <span className="cursor-pointer hover:text-[#6C5CE7]">Support</span>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
+        </section>
     );
 }
