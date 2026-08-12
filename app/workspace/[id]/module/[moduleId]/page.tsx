@@ -12,7 +12,7 @@ import { CgMenuGridO, CgRename } from "react-icons/cg";
 import { IoAddOutline, IoCopyOutline } from "react-icons/io5";
 import { HiOutlineDotsHorizontal, HiOutlineChevronDown } from "react-icons/hi";
 import { HiOutlinePencil } from "react-icons/hi2";
-import { GROUP_COLOR_PALETTE, DEFAULT_STATUS_OPTIONS, STATUS_SWATCHES, COLUMN_TYPE_OPTIONS } from "@/data/data";
+import { DEFAULT_STATUS_OPTIONS, STATUS_SWATCHES, COLUMN_TYPE_OPTIONS, COLLECTION_COLOR_PALETTE } from "@/data/data";
 import { Avatar, Button } from "@heroui/react";
 import { AiOutlineDelete, AiOutlineLoading3Quarters } from "react-icons/ai";
 import { FaChevronDown, FaPlus } from "react-icons/fa";
@@ -132,7 +132,7 @@ function ColumnTypeSelect({ value, onChange }: { value: string; onChange: (v: st
 }
 
 const getGroupColor = (group: Group, index: number) =>
-    group.color || GROUP_COLOR_PALETTE[index % GROUP_COLOR_PALETTE.length];
+    group.color || COLLECTION_COLOR_PALETTE[index % COLLECTION_COLOR_PALETTE.length];
 
 const tint = (hex: string, alpha = 0.08) => {
     const h = hex.replace("#", "");
@@ -546,17 +546,17 @@ interface ColMenuState {
     y: number;
 }
 
-export default function BoardPage() {
+export default function ModulePage() {
     const params = useParams();
     const router = useRouter();
-    const boardId = params.boardId as string;
+    const moduleId = params.moduleId as string;
 
     // Group state
     const [groups, setGroups] = useState<Group[]>([]);
     const [loading, setLoading] = useState(true);
     const [showGroupModal, setShowGroupModal] = useState(false);
     const [groupName, setGroupName] = useState("");
-    const [selectedGroupColor, setSelectedGroupColor] = useState(GROUP_COLOR_PALETTE[0]);
+    const [selectedGroupColor, setSelectedGroupColor] = useState(COLLECTION_COLOR_PALETTE[0]);
     const [creating, setCreating] = useState(false);
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
     const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
@@ -617,12 +617,12 @@ export default function BoardPage() {
         return () => window.removeEventListener("click", handler);
     }, []);
 
-    // ── Fetch Groups ──────────────────────────────────────────────────────
+    // ── Fetch Collections (Groups) ─────────────────────────────────────────
     const getGroups = async () => {
         try {
-            const res = await apiRequest(`/api/groups/${boardId}`, { method: "GET" });
+            const res = await apiRequest(`/api/collections/${moduleId}`, { method: "GET" });
             const data = await res.json();
-            if (res.ok) setGroups(data.groups || []);
+            if (res.ok) setGroups(data.collections || []);
         } catch (e) { console.log(e); } finally { setLoading(false); }
     };
     const handleCopyColumnId = async (columnId: string): Promise<void> => {
@@ -642,9 +642,9 @@ export default function BoardPage() {
             setCopyingId(null);
         }
     };
-    // ── Create Group ──────────────────────────────────────────────────────
+    // ── Create Group (Collection) ─────────────────────────────────────────
     const openGroupModal = () => {
-        setSelectedGroupColor(GROUP_COLOR_PALETTE[groups.length % GROUP_COLOR_PALETTE.length]);
+        setSelectedGroupColor(COLLECTION_COLOR_PALETTE[groups.length % COLLECTION_COLOR_PALETTE.length]);
         setShowGroupModal(true);
     };
 
@@ -652,7 +652,7 @@ export default function BoardPage() {
         if (!groupName.trim()) return;
         try {
             setCreating(true);
-            const res = await apiRequest(`/api/groups/${boardId}`, {
+            const res = await apiRequest(`/api/collections/${moduleId}`, {
                 method: "POST",
                 body: JSON.stringify({ name: groupName, color: selectedGroupColor }),
             });
@@ -660,12 +660,12 @@ export default function BoardPage() {
         } catch (e) { console.log(e); } finally { setCreating(false); }
     };
 
-    // ── Delete Group ──────────────────────────────────────────────────────
+    // ── Delete Group (Collection) ─────────────────────────────────────────
     const deleteGroup = async (groupId: string) => {
         try {
             setDeletingGroupId(groupId);
 
-            const res = await apiRequest(`/api/groups/${groupId}`, {
+            const res = await apiRequest(`/api/collections/${groupId}`, {
                 method: "DELETE",
             });
 
@@ -692,7 +692,7 @@ export default function BoardPage() {
     // ── Fetch Columns ─────────────────────────────────────────────────────
     const getColumns = async () => {
         try {
-            const res = await apiRequest(`/api/columns/${boardId}`, { method: "GET" });
+            const res = await apiRequest(`/api/columns/${moduleId}`, { method: "GET" });
             const data = await res.json();
             if (res.ok) setColumns(data.columns || []);
         } catch (e) { console.log(e); }
@@ -703,7 +703,7 @@ export default function BoardPage() {
         if (!columnName.trim()) return;
         try {
             setCreatingColumn(true);
-            const res = await apiRequest(`/api/columns/${boardId}`, {
+            const res = await apiRequest(`/api/columns/${moduleId}`, {
                 method: "POST",
                 body: JSON.stringify({ name: columnName, type: columnType }),
             });
@@ -762,21 +762,22 @@ export default function BoardPage() {
         } catch (e) { console.log(e); } finally { setDeletingColumnId(null); }
     };
 
-    // ── Fetch Items ───────────────────────────────────────────────────────
+    // ── Fetch Items (Records) ──────────────────────────────────────────────
     const getItems = async (groupId: string) => {
         try {
-            const res = await apiRequest(`/api/items/${groupId}`, { method: "GET" });
+            const res = await apiRequest(`/api/records/${groupId}`, { method: "GET" });
             const data = await res.json();
             if (res.ok) {
-                setItems((prev) => [...prev.filter((i) => i.group !== groupId), ...data.items]);
-                for (const item of data.items) getItemValues(item._id);
+                const recordsList = data.records || data.items || [];
+                setItems((prev) => [...prev.filter((i) => i.group !== groupId), ...recordsList]);
+                for (const item of recordsList) getItemValues(item._id);
             }
         } catch (e) { console.log(e); }
     };
 
     const getItemValues = async (itemId: string) => {
         try {
-            const res = await apiRequest(`/api/item-values/${itemId}`, { method: "GET" });
+            const res = await apiRequest(`/api/record-values/${itemId}`, { method: "GET" });
             const data = await res.json();
             if (res.ok) setItemValues((prev) => [...prev.filter((v) => v.item !== itemId), ...data.values]);
         } catch (e) { console.log(e); }
@@ -790,17 +791,18 @@ export default function BoardPage() {
                 return [...filtered, { _id: tempId, item: item._id, column: column._id, value }];
             });
             if (existingItemValue) {
-                await apiRequest(`/api/item-values/${existingItemValue._id}`, { method: "PUT", body: JSON.stringify({ value }) });
+                await apiRequest(`/api/record-values/${existingItemValue._id}`, { method: "PUT", body: JSON.stringify({ value }) });
             } else {
-                const res = await apiRequest(`/api/item-values`, {
+                const res = await apiRequest(`/api/record-values`, {
                     method: "POST",
-                    body: JSON.stringify({ workspace: item.workspace, board: item.board, group: item.group, item: item._id, column: column._id, value }),
+                    body: JSON.stringify({ workspace: item.workspace, module: item.module || moduleId, collectionName: item.group || item.collectionName, record: item._id, column: column._id, value }),
                 });
                 if (res.ok) {
                     const data = await res.json();
+                    const returnedVal = data.recordValue || data.itemValue;
                     setItemValues((prev) => {
                         const filtered = prev.filter((v) => !(v.item === item._id && (v.column?._id || v.column) === column._id));
-                        return [...filtered, data.itemValue];
+                        return [...filtered, returnedVal];
                     });
                 }
             }
@@ -811,7 +813,7 @@ export default function BoardPage() {
     const renameItem = async (item: any, name: string) => {
         setItems((prev) => prev.map((i) => (i._id === item._id ? { ...i, name } : i)));
         try {
-            await apiRequest(`/api/items/${item._id}`, { method: "PUT", body: JSON.stringify({ name }) });
+            await apiRequest(`/api/records/${item._id}`, { method: "PUT", body: JSON.stringify({ name }) });
         } catch (e) { console.log(e); }
     };
 
@@ -820,7 +822,7 @@ export default function BoardPage() {
         if (!itemName.trim()) return;
         try {
             setCreatingItem(true);
-            const res = await apiRequest(`/api/items/${selectedGroup}`, {
+            const res = await apiRequest(`/api/records/${selectedGroup}`, {
                 method: "POST",
                 body: JSON.stringify({ name: itemName }),
             });
@@ -844,7 +846,7 @@ export default function BoardPage() {
         try {
             setDeletingItems(true);
             const ids = Array.from(selectedItemIds);
-            await Promise.all(ids.map((id) => apiRequest(`/api/items/${id}`, { method: "DELETE" }).catch(console.log)));
+            await Promise.all(ids.map((id) => apiRequest(`/api/records/${id}`, { method: "DELETE" }).catch(console.log)));
             setItems((prev) => prev.filter((i) => !selectedItemIds.has(i._id)));
             setItemValues((prev) => prev.filter((v) => !selectedItemIds.has(v.item)));
             setSelectedItemIds(new Set());
@@ -857,7 +859,7 @@ export default function BoardPage() {
     // ── Drag & drop: groups ───────────────────────────────────────────────
     const persistGroupOrder = async (ordered: Group[]) => {
         await Promise.all(ordered.map((g, idx) =>
-            apiRequest(`/api/groups/${g._id}`, { method: "PUT", body: JSON.stringify({ position: idx }) }).catch(console.log)
+            apiRequest(`/api/collections/${g._id}`, { method: "PUT", body: JSON.stringify({ position: idx }) }).catch(console.log)
         ));
     };
 
@@ -898,7 +900,7 @@ export default function BoardPage() {
 
     // ── Drag & drop: items ────────────────────────────────────────────────
     const persistItemMove = async (itemId: string, groupId: string, position: number) => {
-        await apiRequest(`/api/items/${itemId}`, { method: "PUT", body: JSON.stringify({ group: groupId, position }) }).catch(console.log);
+        await apiRequest(`/api/records/${itemId}`, { method: "PUT", body: JSON.stringify({ collectionName: groupId, position }) }).catch(console.log);
     };
 
     const handleItemDropOnItem = (targetItem: any) => {
@@ -931,8 +933,8 @@ export default function BoardPage() {
 
     // ── Effects ───────────────────────────────────────────────────────────
     useEffect(() => {
-        if (boardId) { getGroups(); getColumns(); }
-    }, [boardId]);
+        if (moduleId) { getGroups(); getColumns(); }
+    }, [moduleId]);
 
     useEffect(() => {
         if (groups.length > 0) {
@@ -1046,7 +1048,7 @@ export default function BoardPage() {
 
 
                                                     <div className="ml-auto flex items-center">
-                                                        
+
 
                                                         {/* Delete group */}
                                                         <button
@@ -1333,7 +1335,7 @@ export default function BoardPage() {
                                     Group color
                                 </label>
                                 <div className="flex items-center gap-2 flex-wrap mb-5">
-                                    {GROUP_COLOR_PALETTE.map((c) => (
+                                    {COLLECTION_COLOR_PALETTE.map((c) => (
                                         <button
                                             key={c}
                                             onClick={() => setSelectedGroupColor(c)}

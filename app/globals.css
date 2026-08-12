@@ -4,6 +4,31 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --primary: #00cec9;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --primary: #00cec9;
+}
+
+.blue {
+  --background: #eff6ff;
+  --foreground: #172554;
+  --primary: #2563eb;
+}
+
+.green {
+  --background: #f0fdf4;
+  --foreground: #14532d;
+  --primary: #16a34a;
+}
+
+.purple {
+  --background: #faf5ff;
+  --foreground: #3b0764;
+  --primary: #9333ea;
 }
 
 @theme inline {

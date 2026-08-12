@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { apiRequest } from "@/lib/api";
 import { useWorkspace } from "@/context/WorkspaceContext";
@@ -15,14 +16,15 @@ import Image from "next/image";
 import logo from "@/app/assets/Logo.png";
 import { FaChevronDown } from "react-icons/fa";
 
+
 import { Blocks, Building2 } from "lucide-react";
 import Link from "next/link";
 interface Workspace {
     _id: string;
     name: string;
-    totalBoards?: number;
+    totalModules?: number;
 }
-interface Board {
+interface Module {
     _id: string;
     name: string;
 }
@@ -35,9 +37,9 @@ export default function Sidebar() {
 
     const [user, setUser] = useState<AuthUser | null>(null);
     const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-    const [boards, setBoards] = useState<Board[]>([]);
+    const [modules, setModules] = useState<Module[]>([]);
     const [loadingWorkspaces, setLoadingWorkspaces] = useState(true);
-    const [loadingBoards, setLoadingBoards] = useState(false);
+    const [loadingModules, setLoadingModules] = useState(false);
     // New UI state for create workspace modal
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -60,9 +62,9 @@ export default function Sidebar() {
 
     useEffect(() => {
         if (workspaceId) {
-            loadBoards(workspaceId);
+            loadModules(workspaceId);
         } else {
-            setBoards([]);
+            setModules([]);
         }
     }, [workspaceId, pathname]);
 
@@ -80,7 +82,7 @@ export default function Sidebar() {
                     .map((ws: any) => ({
                         _id: ws._id,
                         name: ws.name,
-                        totalBoards: ws.totalBoards ?? 0,
+                        totalModules: ws.totalModules ?? 0,
                     }));
                 setWorkspaces(list);
 
@@ -101,32 +103,32 @@ export default function Sidebar() {
         }
     }
 
-    async function loadBoards(id: string) {
+    async function loadModules(id: string) {
         try {
-            setLoadingBoards(true);
+            setLoadingModules(true);
 
-            const response = await apiRequest(`/api/boards/${id}`, { method: "GET" });
+            const response = await apiRequest(`/api/modules/${id}`, { method: "GET" });
             const data = await response.json();
 
-            if (response.ok && data.boards) {
-                const list: Board[] = data.boards
-                    .map((b: any) => {
-                        if (!b) return null;
-                        const _id = b._id || b.id;
-                        const name = b.name || "Untitled Board";
+            if (response.ok && data.modules) {
+                const list: Module[] = data.modules
+                    .map((m: any) => {
+                        if (!m) return null;
+                        const _id = m._id || m.id;
+                        const name = m.name || "Untitled Module";
                         return _id ? { _id: String(_id), name: String(name) } : null;
                     })
                     .filter(Boolean);
 
-                setBoards(list);
+                setModules(list);
             } else {
-                setBoards([]);
+                setModules([]);
             }
         } catch (err) {
-            console.log("Error loading boards:", err);
-            setBoards([]);
+            console.log("Error loading modules:", err);
+            setModules([]);
         } finally {
-            setLoadingBoards(false);
+            setLoadingModules(false);
         }
     }
 
@@ -260,9 +262,9 @@ export default function Sidebar() {
                                         {workspace.name}
                                     </span>
 
-                                    {/* Board count */}
+                                    {/* Module count */}
                                     <span className="text-xs">
-                                        {workspace.totalBoards ?? 0}
+                                        {workspace.totalModules ?? 0}
                                     </span>
                                 </button>
                             ))}
@@ -287,9 +289,19 @@ export default function Sidebar() {
                     </button>
                 </div>
 
-                {showCreateModal && (
-                    <div className="fixed inset-0 flex items-center justify-center z-50 px-4 animate-in fade-in duration-200">
-                        <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200 ">
+                {showCreateModal && createPortal(
+                    <div
+                        className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4"
+                        onClick={() => {
+                            setShowCreateModal(false);
+                            setCreateError("");
+                            setNewWorkspaceName("");
+                        }}
+                    >
+                        <div
+                            className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200"
+                            onClick={(e) => e.stopPropagation()}
+                        >
 
                             {/* Header */}
                             <div className="flex items-center justify-between mb-5 ">
@@ -298,7 +310,7 @@ export default function Sidebar() {
                                         Create Workspace
                                     </h2>
                                     <p className="text-xs text-zinc-500 font-medium mt-0.5">
-                                        Set up a new space to organize boards and team projects.
+                                        Set up a new space to organize modules and team projects.
                                     </p>
                                 </div>
                                 <button
@@ -359,12 +371,13 @@ export default function Sidebar() {
                             </div>
 
                         </div>
-                    </div>
+                    </div>,
+                    document.body
                 )}
 
                 {openModule && (
                     <>
-                        {loadingBoards ? (
+                        {loadingModules ? (
                             <div className="space-y-1.5">
                                 {[...Array(3)].map((_, i) => (
                                     <div
@@ -373,18 +386,18 @@ export default function Sidebar() {
                                     />
                                 ))}
                             </div>
-                        ) : boards.length === 0 ? (
+                        ) : modules.length === 0 ? (
                             <div className="text-sm text-slate-400 py-2 ml-12 font-dmsans">No Module available</div>
                         ) : (
                             <div className="space-y-0.5 ml-5">
-                                {boards.map((board) => {
-                                    const active = pathname.includes(`/board/${board._id}`);
+                                {modules.map((moduleItem) => {
+                                    const active = pathname.includes(`/module/${moduleItem._id}`);
 
                                     return (
                                         <button
-                                            key={board._id}
+                                            key={moduleItem._id}
                                             onClick={() =>
-                                                router.push(`/workspace/${workspaceId}/board/${board._id}`)
+                                                router.push(`/workspace/${workspaceId}/module/${moduleItem._id}`)
                                             }
                                             className={`flex items-center justify-between gap-2 w-full rounded px-3 py-2 text-sm transition-colors cursor-pointer ${active
                                                 ? "font-bold font-google-sans"
@@ -393,7 +406,7 @@ export default function Sidebar() {
                                         >
 
                                             <div className="flex items-center justify-center gap-1 pl-4 font-dmsans">
-                                                <span className="truncate">{board.name}</span>
+                                                <span className="truncate">{moduleItem.name}</span>
 
                                             </div>
                                             <span className="flex justify-center">

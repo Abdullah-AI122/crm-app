@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { DM_Sans, Geist, Geist_Mono, Google_Sans, Istok_Web, Jost, Oswald } from "next/font/google";
 import { WorkspaceProvider } from "@/context/WorkspaceContext";
 import "./globals.css";
+import Providers from "./providers/auth.provider";
+import ThemeProviderWrapper from "./providers/theme.provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -43,26 +45,19 @@ export const metadata: Metadata = {
   description: "CRM Application",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode; }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${oswald.variable} ${geistMono.variable} ${DmSans.variable} ${jost.variable} ${istokweb.variable} ${google_sans.variable} h-full antialiased`}
-    >
-      <body
-        className="min-h-full flex flex-col"
-      >
-        <WorkspaceProvider>
-          <div className="flex min-h-screen w-full">
-            <main className="flex-1 min-w-0 overflow-auto">
-              {children}
-            </main>
-          </div>
-        </WorkspaceProvider>
+    <html lang="en" className={`${geistSans.variable} ${oswald.variable} ${geistMono.variable} ${DmSans.variable} ${jost.variable} ${istokweb.variable} ${google_sans.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col">
+        <Providers>
+          <ThemeProviderWrapper>
+            <WorkspaceProvider>
+              <div className="flex min-h-screen w-full">
+                <main className="flex-1 min-w-0 overflow-auto"> {children} </main>
+              </div>
+            </WorkspaceProvider>
+          </ThemeProviderWrapper>
+        </Providers>
       </body>
     </html>
   );
