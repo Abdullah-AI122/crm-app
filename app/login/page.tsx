@@ -120,7 +120,7 @@ export default function LoginPage() {
                             )}
 
                             <div className="space-y-3">
-                                <button type="button" onClick={() => handleOAuth("google")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60">
+                                <button type="button" onClick={() => handleOAuth("google")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60 cursor-pointer">
                                     <svg className="h-4 w-4" viewBox="0 0 24 24">
                                         <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.07 5.07 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
                                         <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.25 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0012 23z" />
@@ -130,7 +130,7 @@ export default function LoginPage() {
                                     Continue with Google
                                 </button>
 
-                                <button type="button" onClick={() => handleOAuth("apple")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60">
+                                <button type="button" onClick={() => handleOAuth("apple")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60 cursor-pointer">
                                     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="black">
                                         <path d="M16.365 1.43c0 1.14-.417 2.06-1.25 2.87-.833.79-1.833 1.25-2.998 1.16-.146-1.11.375-2.27 1.19-3.06.813-.79 2.146-1.36 3.058-1.29zm3.395 15.65c-.5 1.15-1.083 2.28-1.916 3.36-.917 1.17-1.833 2.34-3.25 2.36-1.375.03-1.833-.79-3.417-.79-1.583 0-2.083.77-3.416.82-1.375.05-2.416-1.24-3.333-2.4-1.833-2.36-3.25-6.68-1.333-9.6 0.917-1.44 2.583-2.36 4.416-2.39 1.334-.02 2.584.87 3.417.87.833 0 2.333-1.07 3.917-.91 0.666.03 2.55.26 3.75 1.99-.1.07-2.25 1.28-2.22 3.86.03 3.1 2.75 4.13 2.78 4.15z" />
                                     </svg>

@@ -47,8 +47,18 @@ export default function Navbar() {
                         <span key={link.href} onClick={() => { router.push(link.href); setMenuOpen(false); }} className="cursor-pointer text-google-sans font-medium text-slate-600 hover:text-[#6C5CE7] ">{link.label}</span>
                     ))}
 
-                    <button onClick={() => { router.push("/login"); setMenuOpen(false); }} className="cursor-pointer text-sm font-semibold text-slate-700 text-left  font-google-sans">Sign In</button>
-                    <button onClick={() => { router.push("/register"); setMenuOpen(false); }} className="cursor-pointer text-sm font-semibold text-white bg-[#6C5CE7] px-4 py-2 rounded-lg w-fit  font-google-sans">Register</button>
+                    <button
+                        onClick={() => {
+                            router.push("/login");
+                            setMenuOpen(false);
+                        }}
+                        className="cursor-pointer cursor-pointer text-sm font-semibold text-slate-700 text-left  font-google-sans">Sign In</button>
+                    <button
+                        onClick={() => {
+                            router.push("/register");
+                            setMenuOpen(false);
+                        }}
+                        className="cursor-pointer text-sm font-semibold text-white bg-[#6C5CE7] px-4 py-2 rounded-lg w-fit  font-google-sans">Register</button>
                 </div>
             )}
         </nav>
