@@ -9,7 +9,7 @@ interface WorkspaceContextType {
 
 const WorkspaceContext = createContext<WorkspaceContextType>({
   workspaceId: "",
-  setWorkspaceId: () => {},
+  setWorkspaceId: () => { },
 });
 
 export function WorkspaceProvider({
