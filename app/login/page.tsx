@@ -162,9 +162,9 @@ export default function LoginPage() {
                                 </button>
                             </form>
 
-                            <p className="mt-5 text-center text-sm">
-                                <span className="cursor-pointer text-slate-600 underline hover:text-[#ff7675]">Forget Password?</span>
-                            </p>
+                            <Link href="/forget" className="mt-2 text-center text-sm font-google-sans flex justify-center">
+                                <span className="cursor-pointer text-black text-md font-semibold  hover:text-[#ff7675]">Forget Password?</span>
+                            </Link>
                         </div>
                     </div>
 

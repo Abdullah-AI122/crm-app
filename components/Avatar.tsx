@@ -43,7 +43,7 @@ export default function UserAvatar() {
             >
                 <Avatar className="border border-slate-600">
                     <Avatar.Image
-                        src="https://iconape.com/wp-content/files/jh/12297/png/user-circle.png"
+                        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2394a3b8'%3E%3Cpath d='M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm0 14.2a7.2 7.2 0 0 1-6-3.22c.03-1.99 4-3.08 6-3.08s5.97 1.09 6 3.08a7.2 7.2 0 0 1-6 3.22z'/%3E%3C/svg%3E"
                         alt={user?.firstName || "User"}
                     />
                     <Avatar.Fallback>

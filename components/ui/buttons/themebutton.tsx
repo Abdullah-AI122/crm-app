@@ -15,8 +15,8 @@ export default function ThemeButton() {
         <div className="w-full">
             <button
                 onClick={() => setOpen(!open)}
-                className="w-full flex items-center justify-between rounded-lg px-5 py-2 hover:bg-gray-50 transition cursor-pointer"
-            >
+                className="w-full flex items-center justify-between rounded-lg px-5 py-1 text-sm font-medium hover:bg-gray-50 transition cursor-pointer mb-1"
+            > 
                 <span>Theme</span>
 
                 <div className="flex items-center gap-2">
