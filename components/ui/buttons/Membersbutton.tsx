@@ -4,12 +4,16 @@ import { useRouter } from "next/navigation";
 import { HiOutlinePlus } from "react-icons/hi2";
 import { getUser } from "@/lib/auth";
 
+import userAsset from "@/app/assets/user.png";
+
 export interface MemberUser {
     _id?: string;
     firstName?: string;
     lastName?: string;
     name?: string;
     email?: string;
+    avatar?: string;
+    profileImage?: string;
 }
 
 export interface Member {
@@ -54,7 +58,7 @@ export default function MembersButton({
     const hasMembers = visibleMembers.length > 0;
 
     return (
-        <div className="inline-flex items-center overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+        <div className="inline-flex items-center overflow-hidden rounded-lg border border-slate-300 bg-card shadow-sm">
             {hasMembers && (
                 <button
                     type="button"
@@ -74,8 +78,15 @@ export default function MembersButton({
                                 }`.trim() ||
                                 "Member";
 
+                            // The API nests the picture under `user`, so read the
+                            // populated user first; the bundled asset stands in for
+                            // anyone who has not uploaded one.
                             const avatar =
-                                member.avatar || member.profileImage;
+                                rawUser?.avatar ||
+                                rawUser?.profileImage ||
+                                member.avatar ||
+                                member.profileImage ||
+                                userAsset.src;
 
                             return (
                                 <div
@@ -83,25 +94,11 @@ export default function MembersButton({
                                     title={memberName}
                                     className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-white bg-slate-200 shadow-sm"
                                 >
-                                    {avatar ? (
-                                        <img
-                                            src={avatar}
-                                            alt={memberName}
-                                            className="h-full w-full object-cover"
-                                        />
-                                    ) : (
-                                        <div className="flex h-full w-full items-center justify-center bg-slate-700 text-[10px] font-semibold text-white">
-                                            {memberName
-                                                .split(" ")
-                                                .filter(Boolean)
-                                                .map(
-                                                    (word: string) => word[0]
-                                                )
-                                                .join("")
-                                                .slice(0, 2)
-                                                .toUpperCase() || "M"}
-                                        </div>
-                                    )}
+                                    <img
+                                        src={avatar}
+                                        alt={memberName}
+                                        className="h-full w-full object-cover"
+                                    />
                                 </div>
                             );
                         })}

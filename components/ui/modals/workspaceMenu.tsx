@@ -3,11 +3,7 @@ import {
     HiOutlinePencilSquare,
     HiOutlineTrash,
 } from "react-icons/hi2";
-
-interface Workspace {
-    _id: string;
-    name: string;
-}
+import type { Workspace } from "@/store/types";
 
 interface WorkspaceMenuProps {
     workspace: Workspace;
@@ -44,7 +40,7 @@ export default function WorkspaceMenu({
     return (
         <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-10 right-0 z-30 w-56 overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-xl"
+            className="absolute top-10 right-0 z-30 w-56 overflow-hidden rounded-xl border border-gray-200 bg-card text-left shadow-xl"
         >
             <button
                 type="button"

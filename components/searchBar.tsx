@@ -31,7 +31,7 @@ export default function SearchBar({
 
     return (
         <div className="flex w-full max-w-xl items-center">
-            <div className="flex h-11 w-full items-center rounded-xl border border-gray-200 bg-white px-3">
+            <div className="flex h-11 w-full items-center rounded-xl border border-gray-200 bg-card px-3">
                 <IoIosSearch
                     size={18}
                     className="text-gray-400"

@@ -75,7 +75,7 @@ export default function CreateModule({
                     <button
                         onClick={createModule}
                         disabled={creatingModule}
-                        className="flex-1 bg-white text-slate-800 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 disabled:opacity-60 transition cursor-pointer font-dmsans"
+                        className="flex-1 bg-card text-slate-800 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-100 disabled:opacity-60 transition cursor-pointer font-dmsans"
                     >
                         {creatingModule ? "Creating..." : "Create Module"}
                     </button>

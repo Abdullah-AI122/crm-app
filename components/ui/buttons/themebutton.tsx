@@ -1,15 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 import { themes } from "@/data/data";
+
+const subscribeNoop = () => () => { };
 
 export default function ThemeButton() {
     const { theme, setTheme } = useTheme();
     const [open, setOpen] = useState(false);
+    // The active theme is only known on the client, so render the neutral
+    // state on the server and swap in the real selection after hydration.
+    const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false);
 
-
-    const selectedTheme = themes.find((item) => item.value === theme);
+    const activeTheme = mounted ? theme : undefined;
+    const selectedTheme = themes.find((item) => item.value === activeTheme);
 
     return (
         <div className="w-full">
@@ -42,7 +47,7 @@ export default function ThemeButton() {
                                     setTheme(item.value);
                                     setOpen(false);
                                 }}
-                                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-sm transition cursor-pointer ${theme === item.value
+                                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-sm transition cursor-pointer ${activeTheme === item.value
                                     ? "bg-gray-100 font-medium"
                                     : "hover:bg-gray-50"
                                     }`}

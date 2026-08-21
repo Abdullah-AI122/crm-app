@@ -35,6 +35,14 @@ export default function ProfileDropdown({
 
     useEffect(() => {
         setUser(getUser());
+
+        // updateUser() fires this after an avatar upload, so the trigger picture
+        // changes without a reload.
+        const onUserUpdated = (e: Event) =>
+            setUser((e as CustomEvent<AuthUser>).detail);
+
+        window.addEventListener("crm:user-updated", onUserUpdated);
+        return () => window.removeEventListener("crm:user-updated", onUserUpdated);
     }, []);
 
     useEffect(() => {
@@ -67,14 +75,16 @@ export default function ProfileDropdown({
         }
     };
 
-    const displayImage = profileImage || userAsset.src;
+    // An explicit prop wins, then the user's uploaded picture; the bundled asset
+    // stays as the fallback for anyone who has not uploaded one.
+    const displayImage = profileImage || user?.avatar || userAsset.src;
     const displayName = userName || user?.firstName || "User";
 
     return (
         <div className="relative" ref={dropdownRef}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="rounded-xl overflow-hidden cursor-pointer w-8 h-8 mt-1"
+                className="rounded-full overflow-hidden cursor-pointer w-8 h-8 mt-1 border-2 border-avatar-ring transition"
             >
                 <img
                     src={displayImage}
@@ -84,7 +94,7 @@ export default function ProfileDropdown({
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 mt-3 w-82 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50">
+                <div className="absolute right-0 mt-3 w-82 bg-card rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50">
 
                     <div className="py-2 border-b pl-5 flex items-center justify-between w-full">
                         <div className="flex items-center gap-3 w-full">

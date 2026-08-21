@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import GoogleButton from "@/components/ui/buttons/googleauth";
+import env from "@/config/env";
 
 const slides = [
     {
@@ -326,23 +327,21 @@ export default function RegisterPage() {
         }
     };
 
-    const handleOAuth = (
-        provider: "google" | "apple"
-    ) => {
-        window.location.href = `http://localhost:4040/api/auth/${provider}`;
+    const handleOAuth = (provider: "apple") => {
+        window.location.href = `${env.NEXT_PUBLIC_API_URL}/auth/${provider}`;
     };
 
     return (
-        <section className="w-full h-full bg-[#D9D9D9] p-3">
+        <section className="w-full h-full bg-canvas p-3">
             <div className="flex gap-3 w-full h-full">
 
-                <div className="hidden lg:flex lg:w-[45%] relative flex-col items-center justify-center border bg-[#FF7675] rounded-2xl">
+                <div className="hidden lg:flex lg:w-[45%] relative flex-col items-center justify-center border bg-accent rounded-2xl">
 
                     <Link
                         href="/"
                         className="cursor-pointer"
                     >
-                        <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white shadow-sm">
+                        <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-card shadow-sm">
                             <Image
                                 src={logo}
                                 alt="Logo"
@@ -370,7 +369,7 @@ export default function RegisterPage() {
                                 }
                                 className={`h-1.5 w-1.5 rounded-full cursor-pointer ${
                                     i === slide
-                                        ? "bg-white"
+                                        ? "bg-card"
                                         : "bg-black"
                                 }`}
                             />
@@ -378,7 +377,7 @@ export default function RegisterPage() {
                     </div>
                 </div>
 
-                <div className="w-full lg:w-[55%] flex flex-col px-6 sm:px-16 py-8 rounded-xl bg-white flex-1">
+                <div className="w-full lg:w-[55%] flex flex-col px-6 sm:px-16 py-8 rounded-xl bg-card flex-1">
 
                     <div className="flex items-center justify-between">
 
@@ -386,7 +385,7 @@ export default function RegisterPage() {
                             href="/"
                             className="cursor-pointer"
                         >
-                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white shadow-sm border border-zinc-300">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-card shadow-sm border border-zinc-300">
                                 <Image
                                     src={logo}
                                     alt="Logo"
@@ -400,7 +399,7 @@ export default function RegisterPage() {
 
                             <Link
                                 href="/login"
-                                className="font-semibold text-[#FF7675] underline cursor-pointer"
+                                className="font-semibold text-accent underline cursor-pointer"
                             >
                                 Login
                             </Link>
@@ -428,7 +427,7 @@ export default function RegisterPage() {
                                     </div>
 
                                     {error && (
-                                        <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-[#FF7675]/30 bg-[#FF7675]/10 px-4 py-3 text-sm text-[#FF7675] text-center">
+                                        <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent text-center">
                                             <AlertCircle className="h-4 w-4 shrink-0" />
 
                                             {error}
@@ -438,11 +437,10 @@ export default function RegisterPage() {
                                     <div className="space-y-3">
 
                                         <GoogleButton
-                                            onClick={() =>
-                                                handleOAuth(
-                                                    "google"
-                                                )
-                                            }
+                                            mode="register"
+                                            label="Sign up with Google"
+                                            disabled={loading}
+                                            onError={setError}
                                         />
 
                                         <button
@@ -453,7 +451,7 @@ export default function RegisterPage() {
                                                 )
                                             }
                                             disabled={loading}
-                                            className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60 cursor-pointer"
+                                            className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-card py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60 cursor-pointer"
                                         >
                                             <svg
                                                 className="h-4 w-4"
@@ -504,7 +502,7 @@ export default function RegisterPage() {
                                                     disabled={
                                                         loading
                                                     }
-                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
+                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-foreground placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
                                                 />
                                             </div>
 
@@ -526,7 +524,7 @@ export default function RegisterPage() {
                                                     disabled={
                                                         loading
                                                     }
-                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
+                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-foreground placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
                                                 />
                                             </div>
                                         </div>
@@ -550,7 +548,7 @@ export default function RegisterPage() {
                                                 disabled={
                                                     loading
                                                 }
-                                                className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
+                                                className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-foreground placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
                                             />
                                         </div>
 
@@ -581,7 +579,7 @@ export default function RegisterPage() {
                                                     disabled={
                                                         loading
                                                     }
-                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 pr-10 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
+                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 pr-10 text-sm text-foreground placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
                                                 />
 
                                                 <button
@@ -594,7 +592,7 @@ export default function RegisterPage() {
                                                             !showPassword
                                                         )
                                                     }
-                                                    className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-zinc-600 hover:text-black"
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-zinc-600 hover:text-foreground"
                                                 >
                                                     {showPassword ? (
                                                         <EyeOff className="h-4 w-4" />
@@ -621,7 +619,7 @@ export default function RegisterPage() {
 
                                                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
                                                         <div
-                                                            className="h-full rounded-full bg-[#FF7675] transition-all duration-300"
+                                                            className="h-full rounded-full bg-accent transition-all duration-300"
                                                             style={{
                                                                 width: `${strengthPercentage}%`,
                                                             }}
@@ -690,7 +688,7 @@ export default function RegisterPage() {
                                                     disabled={
                                                         loading
                                                     }
-                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 pr-10 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
+                                                    className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 pr-10 text-sm text-foreground placeholder:text-zinc-400 outline-none focus:border-black disabled:opacity-60"
                                                 />
 
                                                 <button
@@ -703,7 +701,7 @@ export default function RegisterPage() {
                                                             !showConfirmPassword
                                                         )
                                                     }
-                                                    className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-zinc-600 hover:text-black"
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-zinc-600 hover:text-foreground"
                                                 >
                                                     {showConfirmPassword ? (
                                                         <EyeOff className="h-4 w-4" />
@@ -719,7 +717,7 @@ export default function RegisterPage() {
                                             disabled={
                                                 loading
                                             }
-                                            className="w-full mt-2 flex items-center justify-center gap-2 rounded-lg bg-[#FF7675] py-3 text-sm font-semibold text-white transition hover:bg-[#ff5f5e] disabled:bg-slate-400 disabled:cursor-not-allowed cursor-pointer font-google-sans"
+                                            className="w-full mt-2 flex items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-semibold text-white transition hover:bg-accent-hover disabled:bg-slate-400 disabled:cursor-not-allowed cursor-pointer font-google-sans"
                                         >
                                             {loading ? (
                                                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -739,8 +737,8 @@ export default function RegisterPage() {
                                     {!verified ? (
                                         <>
                                             <div className="mb-8">
-                                                <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#FF7675]/10">
-                                                    <CheckCircle2 className="h-7 w-7 text-[#FF7675]" />
+                                                <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
+                                                    <CheckCircle2 className="h-7 w-7 text-accent" />
                                                 </div>
 
                                                 <h1 className="text-2xl font-bold text-slate-900">
@@ -760,7 +758,7 @@ export default function RegisterPage() {
                                             </div>
 
                                             {error && (
-                                                <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-[#FF7675]/30 bg-[#FF7675]/10 px-4 py-3 text-sm text-[#FF7675]">
+                                                <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent">
                                                     <AlertCircle className="h-4 w-4 shrink-0" />
 
                                                     {error}
@@ -808,7 +806,7 @@ export default function RegisterPage() {
                                                             }
                                                             inputMode="numeric"
                                                             autoComplete="one-time-code"
-                                                            className="h-14 w-12 rounded-lg border border-zinc-400 bg-white text-center text-xl font-semibold text-black outline-none transition focus:border-[#FF7675] focus:ring-2 focus:ring-[#FF7675]/20"
+                                                            className="h-14 w-12 rounded-lg border border-zinc-400 bg-card text-center text-xl font-semibold text-foreground outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
                                                         />
                                                     )
                                                 )}
@@ -826,7 +824,7 @@ export default function RegisterPage() {
                                                     ).length !==
                                                         5
                                                 }
-                                                className="mt-6 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#FF7675] py-3 text-sm font-semibold text-white transition hover:bg-[#ff5f5e] disabled:cursor-not-allowed disabled:bg-slate-300"
+                                                className="mt-6 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-semibold text-white transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-slate-300"
                                             >
                                                 {loading ? (
                                                     <Loader2 className="h-5 w-5 animate-spin" />
@@ -853,7 +851,7 @@ export default function RegisterPage() {
                                                     disabled={
                                                         resending
                                                     }
-                                                    className="cursor-pointer text-sm font-semibold text-[#FF7675] hover:underline disabled:opacity-50"
+                                                    className="cursor-pointer text-sm font-semibold text-accent hover:underline disabled:opacity-50"
                                                 >
                                                     {resending
                                                         ? "Sending..."
@@ -878,7 +876,7 @@ export default function RegisterPage() {
                                                         "",
                                                     ]);
                                                 }}
-                                                className="mt-4 cursor-pointer text-sm text-slate-500 hover:text-black"
+                                                className="mt-4 cursor-pointer text-sm text-slate-500 hover:text-foreground"
                                             >
                                                 Change email
                                             </button>
@@ -917,14 +915,14 @@ export default function RegisterPage() {
                         <div className="flex gap-4">
                             <Link
                                 href="/privacy"
-                                className="cursor-pointer hover:text-[#FF7675]"
+                                className="cursor-pointer hover:text-accent"
                             >
                                 Privacy Policy
                             </Link>
 
                             <Link
                                 href="/support"
-                                className="cursor-pointer hover:text-[#FF7675]"
+                                className="cursor-pointer hover:text-accent"
                             >
                                 Support
                             </Link>

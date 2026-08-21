@@ -1,8 +1,33 @@
 "use client";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
-import { apiRequest } from "@/lib/api";
+import { useAppDispatch } from "@/store/hooks";
+import {
+    useGetCollectionsQuery,
+    useCreateCollectionMutation,
+    useUpdateCollectionMutation,
+    useDeleteCollectionMutation,
+    collectionsApi
+} from "@/store/api/collections.api";
+import {
+    useGetColumnsQuery,
+    useCreateColumnMutation,
+    useUpdateColumnMutation,
+    useDeleteColumnMutation,
+    columnsApi
+} from "@/store/api/columns.api";
+import {
+    useCreateRecordMutation,
+    useUpdateRecordMutation,
+    useDeleteRecordMutation
+} from "@/store/api/records.api";
+import {
+    useCreateRecordValueMutation,
+    useUpdateRecordValueMutation
+} from "@/store/api/recordValues.api";
+import { useGetMembersQuery } from "@/store/api/members.api";
+import { useModuleRecords, refetchRecords, refetchRecordValues } from "@/store/useModuleData";
 import { RiCheckLine, RiDeleteBin5Line } from "react-icons/ri";
 import { RxDragHandleDots2 } from "react-icons/rx";
 import { RiDeleteBin7Fill } from "react-icons/ri";
@@ -14,7 +39,9 @@ import { Button } from "@heroui/react";
 import { AiOutlineLoading3Quarters } from "react-icons/ai";
 import { FaChevronDown } from "react-icons/fa";
 import { VscFileSubmodule } from "react-icons/vsc";
-import { HiOutlinePaperClip, HiOutlineEye, HiOutlineDocumentText, HiOutlineArrowDownTray, HiStar, HiOutlineStar, HiOutlineXMark } from "react-icons/hi2";
+import { HiOutlinePaperClip, HiOutlineEye, HiOutlineDocumentText, HiOutlineArrowDownTray, HiOutlineXMark, HiCheck } from "react-icons/hi2";
+import PersonCell, { PersonAvatar, parsePeopleValue, memberUserId } from "@/components/ui/helpers/personCell";
+import RatingCell, { StarRow, parseRating, formatRating } from "@/components/ui/helpers/ratingCell";
 import FileUploadModal from "@/components/ui/modals/fileUploadModal";
 import ProfileDropdown from "@/components/Profile";
 import { logout } from "@/lib/auth";
@@ -23,13 +50,11 @@ import CreateCollectionModal from "@/components/ui/modals/createCollectionModal"
 import RenameColumnModal from "@/components/ui/modals/renameColumnModal";
 import AddColumnModal from "@/components/ui/modals/addColumnModal";
 import SelectedRecordsModal from "@/components/ui/modals/selectedRecordsModal";
+import DeleteCollectionModal from "@/components/ui/modals/deleteCollectionModal";
+import EditCollectionModal from "@/components/ui/modals/editCollectionModal";
+import CollectionMenu from "@/components/ui/menu/collectionMenu";
 
-interface Collection {
-    _id: string;
-    name: string;
-    color: string;
-    position: number;
-}
+import type { Collection } from "@/store/types";
 
 function ResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
     const startX = useRef(0);
@@ -89,6 +114,61 @@ function getCollectionColor(collection: Collection, index: number) {
     return COLLECTION_COLOR_PALETTE[index % COLLECTION_COLOR_PALETTE.length];
 }
 
+/**
+ * Drag image = a tilted snapshot of the row/column the user actually grabbed, so
+ * the thing being moved is recognisable while it is in flight. The clone sits in
+ * a wrapper because a transform applied to the drag image itself gets clipped out
+ * of the browser's snapshot, and it inherits the page classes (and therefore the
+ * active theme) because it is appended to <body>.
+ */
+const setTiltedDragImage = (e: React.DragEvent, source: HTMLElement, accent: string) => {
+    if (!e.dataTransfer) return;
+
+    const rect = source.getBoundingClientRect();
+    // A full board row can be several thousand px wide; past ~560 the ghost stops
+    // being readable and the browser scales it down anyway.
+    const width = Math.min(rect.width, 560);
+
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.top = "-10000px";
+    wrapper.style.left = "-10000px";
+    wrapper.style.padding = "16px";
+    wrapper.style.pointerEvents = "none";
+    wrapper.style.zIndex = "999999";
+
+    const clone = source.cloneNode(true) as HTMLElement;
+    clone.style.width = `${width}px`;
+    clone.style.maxWidth = `${width}px`;
+    clone.style.height = `${rect.height}px`;
+    clone.style.overflow = "hidden";
+    clone.style.transform = "rotate(2.5deg)";      // right edge dips, as if lifted
+    clone.style.borderRadius = "8px";
+    clone.style.border = `2px solid ${accent}`;
+    // Fully opaque: the snapshot sits on the card surface of the active theme, so
+    // it reads as solid dark on a dark board instead of letting the page bleed
+    // through. The lift shadow is a token because black is invisible on dark.
+    clone.style.backgroundColor = "var(--card)";
+    clone.style.boxShadow = "var(--drag-shadow)";
+
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setDragImage(wrapper, 28, rect.height / 2);
+
+    setTimeout(() => wrapper.remove(), 0);
+};
+
+/**
+ * Board order is the user's arrangement, not the order the API replied in.
+ * Every collection is created with an explicit position, so ties only happen on
+ * legacy rows; `_id` breaks them by creation time and keeps the order stable
+ * across refetches.
+ */
+const byUserOrder = (a: Collection, b: Collection) =>
+    (a.position ?? 0) - (b.position ?? 0) || a._id.localeCompare(b._id);
+
 const getRecordCollectionId = (record: any) => {
     if (!record) return "";
     const val = record.collectionName || record.collection || record.group;
@@ -96,7 +176,7 @@ const getRecordCollectionId = (record: any) => {
     return String(val || "");
 };
 
-// ── 95% Screen File Preview Modal ───────────────────────────────────────────
+// 95% Screen File Preview Modal 
 interface FilePreviewModalProps {
     open: boolean;
     setOpen: (open: boolean) => void;
@@ -123,9 +203,10 @@ function FilePreviewModal({ open, setOpen, file, onChangeFile, onRemoveFile }: F
         >
             <div
                 onClick={(e) => e.stopPropagation()}
-                className="w-[95vw] h-[95vh] bg-white rounded-2xl flex flex-col shadow-2xl overflow-hidden font-dmsans border border-slate-200"
+                className="w-[95vw] h-[95vh] bg-card rounded-2xl flex flex-col shadow-2xl overflow-hidden font-dmsans border border-slate-200"
             >
                 {/* Header */}
+                
                 <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800">
                     <div className="flex items-center gap-3 min-w-0">
                         {isImage ? (
@@ -184,7 +265,7 @@ function FilePreviewModal({ open, setOpen, file, onChangeFile, onRemoveFile }: F
                     ) : isPdf ? (
                         <iframe
                             src={file.url}
-                            className="w-full h-full rounded-xl border border-slate-800 bg-white"
+                            className="w-full h-full rounded-xl border border-slate-800 bg-card"
                             title={file.name}
                         />
                     ) : (
@@ -237,7 +318,7 @@ const RecordNameCell = ({ record, color, width, selected, onSave }: any) => {
 
     return (
         <div
-            className={`shrink-0 px-3 py-2.5 border-r border-slate-300 text-sm font-google-sans flex items-center gap-2 sticky left-10 z-20 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] ${selected ? "bg-slate-100" : "bg-white"}`}
+            className={`shrink-0 px-3 py-2.5 text-sm font-google-sans flex items-center border-r border-slate-300 gap-2 sticky left-10 z-20 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.15)] ${selected ? "bg-slate-100" : "bg-card"}`}
             style={{ width, borderLeft: `3px solid ${color}` }}
         >
             <span className="text-xs cursor-grab active:cursor-grabbing shrink-0 text-slate-500"><CgMenuGridO /></span>
@@ -339,7 +420,7 @@ function TimelinePickerPopover({ open, setOpen, startDate, endDate, onSave }: an
 
     return createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-[1px]">
-            <div ref={ref} className="bg-white border border-slate-200 rounded-xl shadow-2xl p-4 w-72 font-dmsans space-y-3">
+            <div ref={ref} className="bg-card border border-slate-200 rounded-xl shadow-2xl p-4 w-72 font-dmsans space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-700">Set Timeline Range</span>
                     <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer">✕</button>
@@ -367,7 +448,7 @@ function TimelinePickerPopover({ open, setOpen, startDate, endDate, onSave }: an
                 <div className="flex gap-2 pt-2 border-t border-slate-100">
                     <button
                         onClick={handleApply}
-                        className="flex-1 bg-[#334155] hover:bg-[#1E293B] text-white text-xs py-1.5 rounded font-medium transition cursor-pointer"
+                        className="flex-1 bg-slate-600 hover:bg-slate-700 text-card text-xs py-1.5 rounded font-medium transition cursor-pointer"
                     >
                         Apply Range
                     </button>
@@ -385,7 +466,7 @@ function TimelinePickerPopover({ open, setOpen, startDate, endDate, onSave }: an
 }
 
 // ── Cell component ─────────────────────────────────────────────────────────
-const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdateStatusOptions, width }: any) => {
+const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdateStatusOptions, width, workspaceId }: any) => {
     const [editing, setEditing] = useState(false);
     const [value, setValue] = useState(recordValue?.value ?? "");
     const inputRef = useRef<HTMLInputElement>(null);
@@ -515,7 +596,7 @@ const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdate
                 {statusOpen && menuPos && createPortal(
                     <div
                         ref={panelRef}
-                        className="fixed z-50 bg-white border border-slate-200 rounded-lg shadow-2xl p-2 w-56 font-dmsans"
+                        className="fixed z-50 bg-card border border-slate-200 rounded-lg shadow-2xl p-2 w-56 font-dmsans"
                         style={{ top: menuPos.top, left: menuPos.left }}
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -759,6 +840,8 @@ const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdate
                         setOpen={setShowUploadModal}
                         currentFiles={fileList}
                         onSaveFiles={handleSaveUploadedFiles}
+                        workspaceId={workspaceId || record.workspace}
+                        recordId={record._id}
                     />
                 )}
 
@@ -779,44 +862,59 @@ const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdate
         );
     }
 
-    // Rating column type
-    if (column.type === "rating") {
-        const ratingVal = parseInt(value, 10) || 0;
+    // People column type — avatar stack + workspace-member picker
+    if (column.type === "person" || column.type === "people") {
         return (
-            <div className="shrink-0 h-10 border-r border-slate-300 flex items-center justify-center px-2 gap-0.5" style={{ width }}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                        key={star}
-                        type="button"
-                        onClick={() => {
-                            const nVal = star === ratingVal ? "0" : String(star);
-                            setValue(nVal);
-                            onSave(record, column, nVal, recordValue);
-                        }}
-                        className="text-amber-400 hover:scale-110 transition cursor-pointer p-0.5"
-                    >
-                        {star <= ratingVal ? <HiStar size={16} /> : <HiOutlineStar size={16} className="text-slate-300" />}
-                    </button>
-                ))}
-            </div>
+            <PersonCell
+                record={record}
+                column={column}
+                recordValue={recordValue}
+                width={width}
+                workspaceId={workspaceId}
+                onSave={onSave}
+            />
         );
     }
 
-    // Checkbox column type
+    // Rating column type — collapsed stars in the cell, large half-star picker on click
+    if (column.type === "rating") {
+        return (
+            <RatingCell
+                record={record}
+                column={column}
+                recordValue={recordValue}
+                width={width}
+                onSave={onSave}
+            />
+        );
+    }
+
+    // Checkbox column type — a bare green tick, no box chrome
     if (column.type === "checkbox") {
         const isChecked = value === "true" || value === true;
         return (
             <div className="shrink-0 h-10 border-r border-slate-300 flex items-center justify-center px-2" style={{ width }}>
-                <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={(e) => {
-                        const nVal = e.target.checked ? "true" : "false";
+                <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={isChecked}
+                    onClick={() => {
+                        const nVal = isChecked ? "false" : "true";
                         setValue(nVal);
                         onSave(record, column, nVal, recordValue);
                     }}
-                    className="w-4 h-4 accent-[#415A77] cursor-pointer"
-                />
+                    title={isChecked ? "Checked" : "Not checked"}
+                    className="group/check flex h-6 w-6 items-center justify-center rounded-md bg-transparent border-none outline-none cursor-pointer transition"
+                >
+                    <HiCheck
+                        size={18}
+                        strokeWidth={1}
+                        className={`transition ${isChecked
+                            ? "text-emerald-500 opacity-100"
+                            : "text-slate-400 opacity-0 group-hover/check:opacity-40"
+                            }`}
+                    />
+                </button>
             </div>
         );
     }
@@ -888,15 +986,17 @@ const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdate
                     <button
                         type="button"
                         onClick={() => setShowTimelinePicker(true)}
-                        className="w-full h-7 rounded-lg bg-slate-100 hover:bg-slate-200/80 transition flex items-center justify-between px-2 cursor-pointer border border-slate-300 shadow-2xs gap-0.5"
+                        className="w-full h-7 rounded-lg bg-control hover:bg-control-hover transition flex items-center justify-between px-2 cursor-pointer border border-slate-300 shadow-2xs gap-0.5"
                         title={`${startDate} to ${endDate} (${progressPercent}% elapsed)`}
                     >
+                        {/* slate-600 is re-themed per theme, so the filled ticks stay
+                            readable in dark instead of going near-black on a dark track. */}
                         {Array.from({ length: TOTAL_TICKS }).map((_, idx) => (
                             <span
                                 key={idx}
                                 className={`flex-1 h-3.5 rounded-full transition-all duration-300 ${idx < filledTicksCount
-                                    ? "bg-[#334155] shadow-2xs"
-                                    : "bg-slate-300/80"
+                                    ? "bg-slate-600 shadow-2xs"
+                                    : "bg-slate-300/70"
                                     }`}
                             />
                         ))}
@@ -997,28 +1097,68 @@ export default function ModulePage() {
     const params = useParams();
     const router = useRouter();
     const moduleId = params.moduleId as string;
+    const workspaceId = params.id as string;
 
-    // Collection state
-    const [collections, setCollections] = useState<Collection[]>([]);
-    const [loading, setLoading] = useState(true);
+    const dispatch = useAppDispatch();
+
+    // Collection state — served from the shared cache
+    const { data: collectionsData = [], isLoading: loading } = useGetCollectionsQuery(moduleId, {
+        skip: !moduleId
+    });
+
+    // Sorting here (not in the cache) means a record move, a refetch or a
+    // partially-applied reorder can never reshuffle the board behind the user.
+    const collections = useMemo(
+        () => [...collectionsData].sort(byUserOrder),
+        [collectionsData]
+    );
+    const [createCollectionMutation, { isLoading: creating }] = useCreateCollectionMutation();
+    const [updateCollectionMutation] = useUpdateCollectionMutation();
+    const [deleteCollectionMutation] = useDeleteCollectionMutation();
+
     const [showCollectionModal, setShowCollectionModal] = useState(false);
     const [collectionName, setCollectionName] = useState("");
     const [selectedCollectionColor, setSelectedCollectionColor] = useState(COLLECTION_COLOR_PALETTE[0]);
-    const [creating, setCreating] = useState(false);
-    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const [collapsedLocal, setCollapsed] = useState<Record<string, boolean>>(() => {
+        if (typeof window !== "undefined") {
+            try {
+                const saved = localStorage.getItem(`collapsed_collections_${moduleId}`);
+                return saved ? JSON.parse(saved) : {};
+            } catch {
+                return {};
+            }
+        }
+        return {};
+    });
     const [deletingCollectionId, setDeletingCollectionId] = useState<string | null>(null);
 
-    // Column state
-    const [columns, setColumns] = useState<any[]>([]);
+    // Which row / column is currently in flight — only used to fade the original.
+    const [draggingRecordId, setDraggingRecordId] = useState<string | null>(null);
+    const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
+
+    // Workspace roster — shared with every person cell through the same cache entry
+    const { data: workspaceMembers = [] } = useGetMembersQuery(workspaceId, { skip: !workspaceId });
+
+    // Column state — served from the shared cache
+    const { data: columnsData = [] } = useGetColumnsQuery(moduleId, { skip: !moduleId });
+    const columns = columnsData as any[];
+    const [createColumnMutation, { isLoading: creatingColumn }] = useCreateColumnMutation();
+    const [updateColumnMutation] = useUpdateColumnMutation();
+    const [deleteColumnMutation] = useDeleteColumnMutation();
+
     const [showColumnModal, setShowColumnModal] = useState(false);
     const [columnName, setColumnName] = useState("");
     const [columnType, setColumnType] = useState("text");
-    const [creatingColumn, setCreatingColumn] = useState(false);
 
     // Column widths (resizable)
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ recordName: 280 });
     const MIN_COL_WIDTH = 90;
     const getColWidth = (id: string, fallback = 160) => columnWidths[id] ?? fallback;
+    // Total width of everything right of the sticky Record column: every data
+    // column plus the 120px "+ Column" spacer each row ends with.
+    const tableTailWidth =
+        columns.reduce((total: number, c: { _id: string }) => total + getColWidth(c._id), 0) + 120;
+
     const resizeColumn = (id: string, delta: number, fallback = 160) => {
         setColumnWidths((prev) => {
             const current = prev[id] ?? fallback;
@@ -1034,43 +1174,110 @@ export default function ModulePage() {
     const [renamingColumn, setRenamingColumn] = useState(false);
     const [deletingColumnId, setDeletingColumnId] = useState<string | null>(null);
 
-    // Record state
-    const [records, setRecords] = useState<any[]>([]);
+    // Record state — records and their cells come from the same cache the
+    // collections above use, aggregated across every collection on the board.
+    const collectionIds = useMemo(
+        () => collections.map((c: Collection) => c._id),
+        [collections]
+    );
+    // The grid reads legacy alias fields (item/group/collection) on these rows;
+    // tightening them is the component-extraction pass, not this one.
+    const { records, recordValues } = useModuleRecords(collectionIds) as {
+        records: any[];
+        recordValues: any[];
+    };
+
+    const [createRecordMutation, { isLoading: creatingRecord }] = useCreateRecordMutation();
+    const [updateRecordMutation] = useUpdateRecordMutation();
+    const [deleteRecordMutation] = useDeleteRecordMutation();
+    const [createRecordValueMutation] = useCreateRecordValueMutation();
+    const [updateRecordValueMutation] = useUpdateRecordValueMutation();
+
     const [showRecordModal, setShowRecordModal] = useState(false);
     const [recordName, setRecordName] = useState("");
     const [selectedCollection, setSelectedCollection] = useState("");
-    const [creatingRecord, setCreatingRecord] = useState(false);
     const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
     const [deletingRecords, setDeletingRecords] = useState(false);
 
     const [copyingId, setCopyingId] = useState(null);
     const [copiedId, setCopiedId] = useState(null);
 
-    // RecordValue state
-    const [recordValues, setRecordValues] = useState<any[]>([]);
     const [deleteCollectionModal, setDeleteCollectionModal] = useState<string | null>(null);
 
-    // Drag refs
+    // Drag & drop state / refs
     const dragCollectionId = useRef<string | null>(null);
     const dragColumnId = useRef<string | null>(null);
     const dragRecord = useRef<{ id: string; collection: string } | null>(null);
     const [dragOverCollectionId, setDragOverCollectionId] = useState<string | null>(null);
 
+    // Scroll container ref
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // ── Shift + Scroll for horizontal scrolling ─────────────────────────
+    useEffect(() => {
+        const el = scrollContainerRef.current;
+        if (!el) return;
+        const handleWheel = (e: WheelEvent) => {
+            if (e.shiftKey) {
+                e.preventDefault();
+                el.scrollLeft += e.deltaY || e.deltaX;
+            }
+        };
+        el.addEventListener("wheel", handleWheel, { passive: false });
+        return () => el.removeEventListener("wheel", handleWheel);
+    }, []);
+
+    // Collection menu & edit states
+    const [collectionMenu, setCollectionMenu] = useState<{ collection: Collection; x: number; y: number } | null>(null);
+    const [editCollectionModal, setEditCollectionModal] = useState<Collection | null>(null);
+    const [updatingCollection, setUpdatingCollection] = useState(false);
+
+    const handleCopyCollectionId = async (collectionId: string): Promise<void> => {
+        try {
+            setCopyingId(collectionId as any);
+            await navigator.clipboard.writeText(collectionId);
+            setCopyingId(null);
+            setCopiedId(collectionId as any);
+
+            setTimeout(() => {
+                setCopiedId(null);
+            }, 2000);
+        } catch (error) {
+            console.error("Failed to copy collection ID:", error);
+            setCopyingId(null);
+        }
+    };
+
+    const updateCollection = async (collectionId: string, name: string, color: string) => {
+        try {
+            setUpdatingCollection(true);
+            await updateCollectionMutation({ collectionId, moduleId, name, color }).unwrap();
+            setEditCollectionModal(null);
+        } catch (e) {
+            console.log(e);
+        } finally {
+            setUpdatingCollection(false);
+        }
+    };
+
     // ── Close context menu on click outside ──────────────────────────────
     useEffect(() => {
-        const handler = () => setColMenu(null);
+        const handler = () => {
+            setColMenu(null);
+            setCollectionMenu(null);
+        };
         window.addEventListener("click", handler);
         return () => window.removeEventListener("click", handler);
     }, []);
 
-    // ── Fetch Collections ─────────────────────────────────────────────────
-    const getCollections = async () => {
-        try {
-            const res = await apiRequest(`/api/collections/${moduleId}`, { method: "GET" });
-            const data = await res.json();
-            if (res.ok) setCollections(data.collections || []);
-        } catch (e) { console.log(e); } finally { setLoading(false); }
-    };
+    // Server-persisted collapse flags, overridden by whatever this browser toggled.
+    const collapsed = useMemo(() => {
+        const fromServer: Record<string, boolean> = {};
+        collections.forEach((col: Collection) => {
+            if (col.isCollapsed !== undefined) fromServer[col._id] = col.isCollapsed;
+        });
+        return { ...fromServer, ...collapsedLocal };
+    }, [collections, collapsedLocal]);
 
     const handleCopyColumnId = async (columnId: string): Promise<void> => {
         try {
@@ -1097,36 +1304,25 @@ export default function ModulePage() {
     const createCollection = async () => {
         if (!collectionName.trim()) return;
         try {
-            setCreating(true);
-            const res = await apiRequest(`/api/collections/${moduleId}`, {
-                method: "POST",
-                body: JSON.stringify({ name: collectionName, color: selectedCollectionColor }),
-            });
-            if (res.ok) { setCollectionName(""); setShowCollectionModal(false); getCollections(); }
-        } catch (e) { console.log(e); } finally { setCreating(false); }
+            await createCollectionMutation({
+                moduleId,
+                name: collectionName,
+                color: selectedCollectionColor,
+                // Without this the server stores position 0 for every collection,
+                // so the board order becomes whatever Mongo returns for the tie.
+                position: collections.length,
+            }).unwrap();
+            setCollectionName("");
+            setShowCollectionModal(false);
+        } catch (e) { console.log(e); }
     };
 
     // ── Delete Collection ─────────────────────────────────────────────────
     const deleteCollection = async (collectionId: string) => {
         try {
             setDeletingCollectionId(collectionId);
-
-            const res = await apiRequest(`/api/collections/${collectionId}`, {
-                method: "DELETE",
-            });
-
-            if (res.ok) {
-                setCollections((prev) => prev.filter((g) => g._id !== collectionId));
-
-                const collectionRecordIds = records
-                    .filter((i) => getRecordCollectionId(i) === collectionId)
-                    .map((i) => i._id);
-
-                setRecords((prev) => prev.filter((i) => getRecordCollectionId(i) !== collectionId));
-                setRecordValues((prev) =>
-                    prev.filter((v) => !collectionRecordIds.includes(v.record || v.item))
-                );
-            }
+            // Invalidates Collection:LIST plus the Record:LIST for this collection.
+            await deleteCollectionMutation({ collectionId, moduleId }).unwrap();
         } catch (e) {
             console.log(e);
         } finally {
@@ -1135,33 +1331,26 @@ export default function ModulePage() {
         }
     };
 
-    // ── Fetch Columns ─────────────────────────────────────────────────────
-    const getColumns = async () => {
-        try {
-            const res = await apiRequest(`/api/columns/${moduleId}`, { method: "GET" });
-            const data = await res.json();
-            if (res.ok) setColumns(data.columns || []);
-        } catch (e) { console.log(e); }
-    };
-
     // ── Create Column ─────────────────────────────────────────────────────
     const createColumn = async () => {
         if (!columnName.trim()) return;
         try {
-            setCreatingColumn(true);
-            const res = await apiRequest(`/api/columns/${moduleId}`, {
-                method: "POST",
-                body: JSON.stringify({ name: columnName, type: columnType }),
-            });
-            if (res.ok) { setColumnName(""); setColumnType("text"); setShowColumnModal(false); getColumns(); }
-        } catch (e) { console.log(e); } finally { setCreatingColumn(false); }
+            await createColumnMutation({ moduleId, name: columnName, type: columnType }).unwrap();
+            setColumnName("");
+            setColumnType("text");
+            setShowColumnModal(false);
+        } catch (e) { console.log(e); }
     };
 
     // ── Status options: add / edit / delete ────────────────────────────────
     const updateColumnStatusOptions = async (column: any, updated: { label: string; color: string }[]) => {
-        setColumns((prev) => prev.map((c) => (c._id === column._id ? { ...c, statusOptions: updated } : c)));
+        // The mutation patches the cache optimistically and rolls back on failure.
         try {
-            await apiRequest(`/api/columns/${column._id}`, { method: "PUT", body: JSON.stringify({ statusOptions: updated }) });
+            await updateColumnMutation({
+                columnId: column._id,
+                moduleId,
+                statusOptions: updated,
+            }).unwrap();
         } catch (e) { console.log(e); }
     };
 
@@ -1183,14 +1372,12 @@ export default function ModulePage() {
         if (!renameModal || !renameValue.trim()) return;
         try {
             setRenamingColumn(true);
-            const res = await apiRequest(`/api/columns/${renameModal.id}`, {
-                method: "PUT",
-                body: JSON.stringify({ name: renameValue }),
-            });
-            if (res.ok) {
-                setColumns((prev) => prev.map((c) => c._id === renameModal.id ? { ...c, name: renameValue } : c));
-                setRenameModal(null);
-            }
+            await updateColumnMutation({
+                columnId: renameModal.id,
+                moduleId,
+                name: renameValue,
+            }).unwrap();
+            setRenameModal(null);
         } catch (e) { console.log(e); } finally { setRenamingColumn(false); }
     };
 
@@ -1200,81 +1387,42 @@ export default function ModulePage() {
         if (!confirm("Delete this column?")) return;
         try {
             setDeletingColumnId(columnId);
-            const res = await apiRequest(`/api/columns/${columnId}`, { method: "DELETE" });
-            if (res.ok) {
-                setColumns((prev) => prev.filter((c) => c._id !== columnId));
-                setRecordValues((prev) => prev.filter((v) => (v.column?._id || v.column) !== columnId));
-            }
+            await deleteColumnMutation({ columnId, moduleId }).unwrap();
+            // The removed cells are gone server-side; refresh each row.
+            records.forEach((record) => refetchRecordValues(record._id));
         } catch (e) { console.log(e); } finally { setDeletingColumnId(null); }
-    };
-
-    // ── Fetch Records ──────────────────────────────────────────────────────
-    const getRecords = async (collectionId: string) => {
-        try {
-            const res = await apiRequest(`/api/records/${collectionId}`, { method: "GET" });
-            const data = await res.json();
-            if (res.ok) {
-                const recordsList = data.records || data.items || [];
-                setRecords((prev) => [
-                    ...prev.filter((i) => getRecordCollectionId(i) !== collectionId),
-                    ...recordsList,
-                ]);
-                for (const record of recordsList) getRecordValues(record._id);
-            }
-        } catch (e) { console.log(e); }
-    };
-
-    const getRecordValues = async (recordId: string) => {
-        try {
-            const res = await apiRequest(`/api/record-values/${recordId}`, { method: "GET" });
-            const data = await res.json();
-            if (res.ok) {
-                setRecordValues((prev) => [
-                    ...prev.filter((v) => (v.record || v.item) !== recordId),
-                    ...data.values,
-                ]);
-            }
-        } catch (e) { console.log(e); }
     };
 
     const saveRecordValue = async (record: any, column: any, value: any, existingRecordValue: any) => {
         try {
-            const tempId = existingRecordValue?._id || Math.random().toString();
-            setRecordValues((prev) => {
-                const filtered = prev.filter((v) => !((v.record || v.item) === record._id && (v.column?._id || v.column) === column._id));
-                return [...filtered, { _id: tempId, record: record._id, item: record._id, column: column._id, value }];
-            });
             if (existingRecordValue) {
-                await apiRequest(`/api/record-values/${existingRecordValue._id}`, { method: "PUT", body: JSON.stringify({ value }) });
+                // Optimistic: the cache is patched before the request leaves.
+                await updateRecordValueMutation({
+                    recordValueId: existingRecordValue._id,
+                    recordId: record._id,
+                    value,
+                }).unwrap();
             } else {
-                const res = await apiRequest(`/api/record-values`, {
-                    method: "POST",
-                    body: JSON.stringify({
-                        workspace: record.workspace,
-                        module: record.module || moduleId,
-                        collectionName: record.group || record.collectionName,
-                        record: record._id,
-                        column: column._id,
-                        value,
-                    }),
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    const returnedVal = data.recordValue || data.itemValue;
-                    setRecordValues((prev) => {
-                        const filtered = prev.filter((v) => !((v.record || v.item) === record._id && (v.column?._id || v.column) === column._id));
-                        return [...filtered, returnedVal];
-                    });
-                }
+                await createRecordValueMutation({
+                    recordId: record._id,
+                    columnId: column._id,
+                    collectionId: record.group || record.collectionName,
+                    moduleId: record.module || moduleId,
+                    workspaceId: record.workspace,
+                    value,
+                }).unwrap();
             }
         } catch (e) { console.log(e); }
     };
 
     // ── Rename Record (inline edit, auto-save) ──────────────────────────────
     const renameRecord = async (record: any, name: string) => {
-        setRecords((prev) => prev.map((i) => (i._id === record._id ? { ...i, name } : i)));
         try {
-            await apiRequest(`/api/records/${record._id}`, { method: "PUT", body: JSON.stringify({ name }) });
+            await updateRecordMutation({
+                recordId: record._id,
+                collectionId: getRecordCollectionId(record),
+                name,
+            }).unwrap();
         } catch (e) { console.log(e); }
     };
 
@@ -1282,17 +1430,13 @@ export default function ModulePage() {
     const createRecord = async () => {
         if (!recordName.trim()) return;
         try {
-            setCreatingRecord(true);
-            const res = await apiRequest(`/api/records/${selectedCollection}`, {
-                method: "POST",
-                body: JSON.stringify({ name: recordName }),
-            });
-            if (res.ok) {
-                setShowRecordModal(false);
-                setRecordName("");
-                getRecords(selectedCollection);
-            }
-        } catch (e) { console.log(e); } finally { setCreatingRecord(false); }
+            await createRecordMutation({
+                collectionId: selectedCollection,
+                name: recordName,
+            }).unwrap();
+            setShowRecordModal(false);
+            setRecordName("");
+        } catch (e) { console.log(e); }
     };
 
     // ── Delete Records ─────────────────────────────────────────────────────
@@ -1318,45 +1462,134 @@ export default function ModulePage() {
         if (selectedRecordIds.size === 0) return;
         try {
             setDeletingRecords(true);
-            const ids = Array.from(selectedRecordIds);
-            await Promise.all(ids.map((id) => apiRequest(`/api/records/${id}`, { method: "DELETE" }).catch(console.log)));
-            setRecords((prev) => prev.filter((i) => !selectedRecordIds.has(i._id)));
-            setRecordValues((prev) => prev.filter((v) => !selectedRecordIds.has(v.record || v.item)));
+            const targets = records.filter((r) => selectedRecordIds.has(r._id));
+            await Promise.all(
+                targets.map((record) =>
+                    deleteRecordMutation({
+                        recordId: record._id,
+                        collectionId: getRecordCollectionId(record),
+                    }).unwrap().catch(console.log)
+                )
+            );
             setSelectedRecordIds(new Set());
         } catch (e) { console.log(e); } finally { setDeletingRecords(false); }
     };
 
     // ── Collapse / expand ─────────────────────────────────────────────────
-    const toggleCollapsed = (collectionId: string) =>
-        setCollapsed((prev) => ({ ...prev, [collectionId]: !prev[collectionId] }));
+    const toggleCollapsed = (collectionId: string) => {
+        setCollapsed((prev) => {
+            const isNowCollapsed = !prev[collectionId];
+            const next = { ...prev, [collectionId]: isNowCollapsed };
+            if (typeof window !== "undefined") {
+                try {
+                    localStorage.setItem(`collapsed_collections_${moduleId}`, JSON.stringify(next));
+                } catch (e) {
+                    console.log(e);
+                }
+            }
+            updateCollectionMutation({
+                collectionId,
+                moduleId,
+                isCollapsed: isNowCollapsed,
+            }).unwrap().catch(console.log);
+            return next;
+        });
+    };
 
     // ── Drag & drop: collections ──────────────────────────────────────────
+    const handleCollectionDragStart = (e: React.DragEvent, collectionId: string, name: string, color: string) => {
+        dragCollectionId.current = collectionId;
+
+        const ghost = document.createElement("div");
+        ghost.style.position = "fixed";
+        ghost.style.top = "-9999px";
+        ghost.style.left = "-9999px";
+        ghost.style.display = "inline-flex";
+        ghost.style.alignItems = "center";
+        ghost.style.gap = "8px";
+        ghost.style.padding = "6px 14px";
+        ghost.style.backgroundColor = "var(--card)";
+        ghost.style.border = `2px solid ${color || "var(--accent)"}`;
+        ghost.style.borderRadius = "8px";
+        ghost.style.boxShadow = "var(--drag-shadow)";
+        ghost.style.fontWeight = "900";
+        ghost.style.fontSize = "13px";
+        ghost.style.color = color || "var(--foreground)";
+        ghost.style.textTransform = "uppercase";
+        ghost.style.letterSpacing = "0.05em";
+        ghost.style.fontFamily = "system-ui, sans-serif";
+        ghost.style.zIndex = "999999";
+        ghost.innerHTML = `<span style="color: var(--muted); font-size: 14px;">⋮⋮</span> <span style="color: ${color || "var(--foreground)"}; font-weight: 900;">› ${name}</span>`;
+
+        document.body.appendChild(ghost);
+
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setDragImage(ghost, 30, 16);
+        }
+
+        setTimeout(() => {
+            if (document.body.contains(ghost)) {
+                document.body.removeChild(ghost);
+            }
+        }, 0);
+    };
+
     const persistCollectionOrder = async (ordered: Collection[]) => {
-        await Promise.all(ordered.map((g, idx) =>
-            apiRequest(`/api/collections/${g._id}`, { method: "PUT", body: JSON.stringify({ position: idx }) }).catch(console.log)
-        ));
+        try {
+            await Promise.all(
+                ordered.flatMap((g, idx) =>
+                    g.position === idx
+                        ? []
+                        : [
+                            updateCollectionMutation({
+                                collectionId: g._id,
+                                moduleId,
+                                position: idx,
+                            }).unwrap(),
+                        ]
+                )
+            );
+        } catch (e) {
+            console.log(e);
+            // A half-written order would resurface on the next refetch, so pull the
+            // list back to what the server actually stored.
+            dispatch(
+                collectionsApi.endpoints.getCollections.initiate(moduleId, {
+                    subscribe: false,
+                    forceRefetch: true,
+                })
+            );
+        }
     };
 
     const handleCollectionDrop = (targetCollectionId: string) => {
         const sourceId = dragCollectionId.current;
         dragCollectionId.current = null;
         if (!sourceId || sourceId === targetCollectionId) return;
-        setCollections((prev) => {
-            const next = [...prev];
-            const from = next.findIndex((g) => g._id === sourceId);
-            const to = next.findIndex((g) => g._id === targetCollectionId);
-            if (from === -1 || to === -1) return prev;
-            const [moved] = next.splice(from, 1);
-            next.splice(to, 0, moved);
-            persistCollectionOrder(next);
-            return next;
-        });
+
+        const next = [...collections];
+        const from = next.findIndex((g: Collection) => g._id === sourceId);
+        const to = next.findIndex((g: Collection) => g._id === targetCollectionId);
+        if (from === -1 || to === -1) return;
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+
+        // Write the new positions into the cache immediately — the render sorts on
+        // position, so patching the array order alone would not move anything.
+        const repositioned = next.map((g, idx) => ({ ...g, position: idx }));
+        dispatch(
+            collectionsApi.util.updateQueryData("getCollections", moduleId, () => repositioned)
+        );
+        persistCollectionOrder(next);
     };
 
     // ── Drag & drop: columns ──────────────────────────────────────────────
     const persistColumnOrder = async (ordered: any[]) => {
         await Promise.all(ordered.map((c, idx) =>
-            apiRequest(`/api/columns/${c._id}`, { method: "PUT", body: JSON.stringify({ position: idx }) }).catch(console.log)
+            updateColumnMutation({ columnId: c._id, moduleId, position: idx })
+                .unwrap()
+                .catch(console.log)
         ));
     };
 
@@ -1364,21 +1597,70 @@ export default function ModulePage() {
         const sourceId = dragColumnId.current;
         dragColumnId.current = null;
         if (!sourceId || sourceId === targetColumnId) return;
-        setColumns((prev) => {
-            const next = [...prev];
-            const from = next.findIndex((c) => c._id === sourceId);
-            const to = next.findIndex((c) => c._id === targetColumnId);
-            if (from === -1 || to === -1) return prev;
-            const [moved] = next.splice(from, 1);
-            next.splice(to, 0, moved);
-            persistColumnOrder(next);
-            return next;
-        });
+
+        const next = [...columns];
+        const from = next.findIndex((c) => c._id === sourceId);
+        const to = next.findIndex((c) => c._id === targetColumnId);
+        if (from === -1 || to === -1) return;
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+
+        dispatch(columnsApi.util.updateQueryData("getColumns", moduleId, () => next));
+        persistColumnOrder(next);
     };
 
     // ── Drag & drop: records ──────────────────────────────────────────────
-    const persistRecordMove = async (recordId: string, collectionId: string, position: number) => {
-        await apiRequest(`/api/records/${recordId}`, { method: "PUT", body: JSON.stringify({ collectionName: collectionId, position }) }).catch(console.log);
+    const persistRecordMove = async (
+        recordId: string,
+        sourceCollectionId: string,
+        targetCollectionId: string,
+        position: number
+    ) => {
+        const moved = records.find((r) => r._id === recordId);
+        if (!moved) return;
+
+        // Rebuild the target order client-side: dropping onto a row would
+        // otherwise hand two records the same position, and the server sorts on it.
+        const ordered = records
+            .filter(
+                (r) => getRecordCollectionId(r) === targetCollectionId && r._id !== recordId
+            )
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        ordered.splice(Math.min(Math.max(position, 0), ordered.length), 0, moved);
+
+        try {
+            // Siblings first — same-collection writes, so they patch the cache in
+            // place without invalidating anything.
+            await Promise.all(
+                ordered.flatMap((r, index) =>
+                    r._id === recordId || r.position === index
+                        ? []
+                        : [
+                            updateRecordMutation({
+                                recordId: r._id,
+                                collectionId: targetCollectionId,
+                                position: index,
+                            }).unwrap(),
+                        ]
+                )
+            );
+
+            // The move itself goes last: it writes `collectionName` (the record's
+            // collection ref) and invalidates both Record:LIST tags, so the source
+            // and target lists refetch once everything is persisted.
+            await updateRecordMutation({
+                recordId,
+                collectionId: sourceCollectionId,
+                collectionName: targetCollectionId,
+                position: ordered.findIndex((r) => r._id === recordId),
+            }).unwrap();
+        } catch (e) {
+            console.log(e);
+            // Nothing persisted reliably — pull both lists back to server truth
+            // so the row cannot linger in two collections at once.
+            refetchRecords(sourceCollectionId);
+            if (targetCollectionId !== sourceCollectionId) refetchRecords(targetCollectionId);
+        }
     };
 
     const handleRecordDropOnRecord = (targetRecord: any) => {
@@ -1386,20 +1668,19 @@ export default function ModulePage() {
         dragRecord.current = null;
         setDragOverCollectionId(null);
         if (!source || source.id === targetRecord._id) return;
+
         const targetCollectionId = getRecordCollectionId(targetRecord);
-        setRecords((prev) => {
-            const next = [...prev];
-            const from = next.findIndex((i) => i._id === source.id);
-            if (from === -1) return prev;
-            const [moved] = next.splice(from, 1);
-            moved.collectionName = targetCollectionId;
-            moved.collection = targetCollectionId;
-            const to = next.findIndex((i) => i._id === targetRecord._id);
-            next.splice(to === -1 ? next.length : to, 0, moved);
-            const collectionRecords = next.filter((i) => getRecordCollectionId(i) === targetCollectionId);
-            persistRecordMove(moved._id, targetCollectionId, collectionRecords.findIndex((i) => i._id === moved._id));
-            return next;
-        });
+        const targetSiblings = records
+            .filter(
+                (i) => getRecordCollectionId(i) === targetCollectionId && i._id !== source.id
+            )
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        const position = Math.max(
+            0,
+            targetSiblings.findIndex((i) => i._id === targetRecord._id)
+        );
+
+        persistRecordMove(source.id, source.collection, targetCollectionId, position);
     };
 
     const handleRecordDropOnCollection = (targetCollectionId: string) => {
@@ -1407,25 +1688,15 @@ export default function ModulePage() {
         dragRecord.current = null;
         setDragOverCollectionId(null);
         if (!source || source.collection === targetCollectionId) return;
-        setRecords((prev) => {
-            const next = prev.map((i) => (i._id === source.id ? { ...i, collectionName: targetCollectionId, collection: targetCollectionId } : i));
-            const collectionRecords = next.filter((i) => getRecordCollectionId(i) === targetCollectionId);
-            persistRecordMove(source.id, targetCollectionId, collectionRecords.length - 1);
-            return next;
-        });
+
+        const position = records.filter(
+            (i) => getRecordCollectionId(i) === targetCollectionId
+        ).length;
+
+        persistRecordMove(source.id, source.collection, targetCollectionId, position);
     };
 
     // ── Effects ───────────────────────────────────────────────────────────
-    useEffect(() => {
-        if (moduleId) { getCollections(); getColumns(); }
-    }, [moduleId]);
-
-    useEffect(() => {
-        if (collections.length > 0) {
-            collections.forEach((g) => getRecords(g._id));
-        }
-    }, [collections.length]);
-
     const handleLogout = () => {
         logout();
         router.push("/login");
@@ -1435,10 +1706,10 @@ export default function ModulePage() {
         <>
             <section className="flex h-screen overflow-hidden">
                 <Sidebar />
-                <div className="h-screen w-full bg-[#D9D9D9] py-2 flex flex-col overflow-hidden">
-                    <div className="bg-white ml-4 rounded-l-xl flex-1 flex flex-col overflow-hidden">
+                <div className="h-screen w-full bg-canvas py-2 flex flex-col overflow-hidden">
+                    <div className="bg-card ml-4 rounded-l-xl flex-1 flex flex-col overflow-hidden">
                         {/* Page header */}
-                        <div className="pl-4 pr-2 flex gap-2 items-center justify-between border-b border-slate-100 shrink-0 bg-white rounded-tl-xl py-2.5">
+                        <div className="pl-4 pr-2 flex gap-2 items-center justify-between border-b border-slate-100 shrink-0 bg-card rounded-tl-xl py-2.5">
                             <div className="flex items-center gap-2">
                                 <h2 className="text-lg font-bold font-google-sans text-slate-800">Collections</h2>
                             </div>
@@ -1448,26 +1719,31 @@ export default function ModulePage() {
                         {/* Module content */}
                         <div className="pl-8 pt-2 flex-1 flex flex-col overflow-hidden">
                             {/* Main collections scroll section with single global scrollbar */}
-                            <div className="flex-1 overflow-x-auto overflow-y-auto w-full [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:bg-slate-400 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100 pr-2">
+                            <div
+                                ref={scrollContainerRef}
+                                className="flex-1 overflow-x-auto overflow-y-auto w-full [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-zinc-400 hover:[&::-webkit-scrollbar-thumb]:bg-zinc-600 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-zinc-100 pr-2"
+                            >
                                 {loading ? (
                                     <div className="space-y-4">
                                         {[1, 2, 3].map((i) => (
-                                            <div key={i} className="h-32 rounded bg-white/5 shimmer" />
+                                            <div key={i} className="h-32 rounded bg-card/5 shimmer" />
                                         ))}
                                     </div>
                                 ) : collections.length === 0 ? (
                                     <div className="border border-dashed border-slate-500 rounded p-16 text-center flex items-center justify-center flex-col">
                                         <div className="text-4xl mb-4 inline-block "><VscFileSubmodule /></div>
-                                        <h2 className="text-lg font-semibold mb-1 font-google-sans text-black ">Empty Module</h2>
-                                        <p className="mb-5 text-sm font-google-sans text-black">Create your first Collection to start organizing work</p>
+                                        <h2 className="text-lg font-semibold mb-1 font-google-sans text-foreground ">Empty Module</h2>
+                                        <p className="mb-5 text-sm font-google-sans text-foreground">Create your first Collection to start organizing work</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-4 min-w-max">
                                         {collections.map((collection, collectionIndex) => {
                                             const color = getCollectionColor(collection, collectionIndex);
-                                            const collectionRecords = records.filter(
-                                                (record) => getRecordCollectionId(record) === collection._id
-                                            );
+                                            const collectionRecords = records
+                                                .filter(
+                                                    (record) => getRecordCollectionId(record) === collection._id
+                                                )
+                                                .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
                                             const isCollapsed = !!collapsed[collection._id];
                                             const allSelected =
                                                 collectionRecords.length > 0 &&
@@ -1479,14 +1755,25 @@ export default function ModulePage() {
                                             return (
                                                 <div
                                                     key={collection._id}
-                                                    draggable
-                                                    onDragStart={() => (dragCollectionId.current = collection._id)}
                                                     onDragOver={(e) => e.preventDefault()}
                                                     onDrop={() => handleCollectionDrop(collection._id)}
-                                                    className="min-w-max my-4 flex flex-col"
+                                                    className="w-full min-w-max my-4 flex flex-col"
                                                 >
-                                                    {/* ── Collection header (Sticky Left for Global Scroll) ───────────────────────── */}
-                                                    <div className="sticky left-0 z-30 inline-flex items-center gap-1.5 mb-2 select-none px-2.5 py-1 bg-white rounded-md border border-slate-200 w-fit shadow-sm">
+                                                    {/* ── Collection header ───────────────────────────────────────
+                                                        Outer rail spans the table and pins to the top of the scrollport
+                                                        while this collection is in view; the pill inside pins to the left
+                                                        edge on horizontal scroll, the same way the Record column does. */}
+                                                    <div className="sticky top-0 z-40 mb-2 bg-card py-1">
+                                                        <div
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.stopPropagation();
+                                                                handleCollectionDragStart(e, collection._id, collection.name, color);
+                                                            }}
+                                                            className="sticky left-0 z-10 inline-flex w-fit items-center gap-1.5 select-none rounded-md border bg-card px-2.5 py-1 cursor-grab active:cursor-grabbing"
+                                                            style={{ borderColor: color }}
+                                                            title="Drag the title to reorder collections"
+                                                        >
                                                         {/* Drag handle */}
                                                         <span className="cursor-grab active:cursor-grabbing text-slate-400 text-sm" title="Drag collection">
                                                             <RxDragHandleDots2 />
@@ -1506,40 +1793,61 @@ export default function ModulePage() {
                                                             />
                                                         </button>
 
-                                                        <span className="text-sm font-bold font-google-sans uppercase tracking-wide" style={{ color }}>
-                                                            {collection.name}
-                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                setCollectionMenu({
+                                                                    collection,
+                                                                    x: rect.left,
+                                                                    y: rect.bottom + 6,
+                                                                });
+                                                            }}
+                                                            className="text-sm font-bold font-google-sans uppercase tracking-wide cursor-pointer hover:opacity-80 transition flex items-center gap-1.5"
+                                                            style={{ color }}
+                                                            title="Click for collection options"
+                                                        >
+                                                            <span>{collection.name}</span>
+                                                        </button>
+                                                        </div>
                                                     </div>
 
                                                     {/* ── Collection table ─────────────────────────── */}
                                                     {!isCollapsed && (
                                                         <div
-                                                            className="min-w-max border border-slate-300 rounded-lg "
+                                                            className="w-fit min-w-max rounded-lg flex flex-col"
                                                             onDragOver={(e) => {
                                                                 e.preventDefault();
                                                                 setDragOverCollectionId(collection._id);
                                                             }}
-                                                            onDrop={() => handleRecordDropOnCollection(collection._id)}
+                                                            onDragLeave={() => setDragOverCollectionId(null)}
+                                                            onDrop={(e) => {
+                                                                e.stopPropagation();
+                                                                handleRecordDropOnCollection(collection._id);
+                                                            }}
                                                             style={{
                                                                 outline: dragOverCollectionId === collection._id ? `2px solid ${color}33` : "none",
                                                             }}
                                                         >
                                                             {/* Header row */}
-                                                            <div className="flex items-stretch border-b border-slate-300 bg-white  rounded-t-lg">
+                                                            <div className="flex items-stretch min-w-max border-b border-slate-300 bg-card rounded-t-lg">
                                                                 {/* Checkbox */}
-                                                                <div className="w-10 shrink-0 flex items-center justify-center p-2 cursor-pointer sticky left-0 z-30 border-r border-slate-300 bg-white rounded-tl-lg">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={allSelected}
-                                                                        onChange={() => toggleSelectAllInCollection(collection._id)}
-                                                                        className="w-3.5 h-3.5 accent-[#415A77] cursor-pointer"
-                                                                    />
+                                                                <div className="flex items-center justify-center  w-10 sticky  left-0 z-30 bg-card ">
+                                                                    <div className=" shrink-0 w-full h-full cursor-pointer border-l border-t border-slate-300  rounded-tl-lg flex items-center justify-center">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={allSelected}
+                                                                            onChange={() => toggleSelectAllInCollection(collection._id)}
+                                                                            className="w-3.5 h-3.5 accent-[#415A77] cursor-pointer"
+                                                                        />
+                                                                    </div>
                                                                 </div>
 
                                                                 {/* Record label — sticky, resizable */}
                                                                 <div
-                                                                    className="relative shrink-0 px-3 py-2.5 border-r border-slate-300 text-xs font-semibold text-slate-500  tracking-wider flex items-center sticky left-10 z-30 font-google-sans bg-white shadow-[3px_0_6px_-2px_rgba(0,0,0,0.15)]"
-                                                                    style={{ width: getColWidth("recordName", 280), borderLeft: `3px solid ${color}` }}
+                                                                    className="relative shrink-0 px-3 py-3 text-xs font-semibold text-slate-500 tracking-wider flex items-center sticky left-10 z-30 font-google-sans bg-card shadow-[3px_0_6px_-2px_rgba(0,0,0,0.15)] border-t border-r border-slate-300"
+                                                                    style={{ width: getColWidth("recordName", 280), borderLeft: `3px solid ${color}`, }}
                                                                 >
                                                                     Record
                                                                     <ResizeHandle onResize={(d) => resizeColumn("recordName", d, 280)} />
@@ -1550,15 +1858,26 @@ export default function ModulePage() {
                                                                     <div
                                                                         key={column._id}
                                                                         draggable
-                                                                        onDragStart={() => (dragColumnId.current = column._id)}
+                                                                        onDragStart={(e) => {
+                                                                            // Without this the collection header's own dragstart also
+                                                                            // fires and the board reorders collections instead.
+                                                                            e.stopPropagation();
+                                                                            dragColumnId.current = column._id;
+                                                                            setDraggingColumnId(column._id);
+                                                                            setTiltedDragImage(e, e.currentTarget, "var(--accent)");
+                                                                        }}
+                                                                        onDragEnd={() => setDraggingColumnId(null)}
                                                                         onDragOver={(e) => e.preventDefault()}
-                                                                        onDrop={() => handleColumnDrop(column._id)}
+                                                                        onDrop={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleColumnDrop(column._id);
+                                                                        }}
                                                                         onContextMenu={(e) => {
                                                                             e.preventDefault();
                                                                             e.stopPropagation();
                                                                             setColMenu({ columnId: column._id, columnName: column.name, x: e.clientX, y: e.clientY });
                                                                         }}
-                                                                        className="relative shrink-0 px-3 py-2.5 border-r border-slate-300 tracking-wider font-google-sans flex items-center justify-center cursor-grab active:cursor-grabbing bg-white transition select-none text-[13px]"
+                                                                        className={`relative shrink-0 px-3 py-2.5 border-t border-r border-slate-300 tracking-wider font-google-sans flex items-center justify-center cursor-grab active:cursor-grabbing bg-card transition select-none text-[13px] ${draggingColumnId === column._id ? "opacity-40 ring-2 ring-accent ring-inset" : ""}`}
                                                                         style={{ width: getColWidth(column._id) }}
                                                                         title="Right-click to rename / delete"
                                                                     >
@@ -1572,7 +1891,7 @@ export default function ModulePage() {
                                                                 ))}
 
                                                                 {/* Add column button at end */}
-                                                                <div className="w-[120px] shrink-0 px-3 py-2.5 flex items-center justify-center">
+                                                                <div className="w-[120px] shrink-0 px-3 py-2.5 flex items-center justify-center border-t border-r border-slate-300 rounded-tr-lg bg-card">
                                                                     <button
                                                                         onClick={() => setShowColumnModal(true)}
                                                                         className="text-xs text-zinc-500 font-google-sans font-bold transition whitespace-nowrap cursor-pointer"
@@ -1587,27 +1906,35 @@ export default function ModulePage() {
                                                                 <div
                                                                     key={record._id}
                                                                     draggable
-                                                                    onDragStart={() =>
-                                                                    (dragRecord.current = {
-                                                                        id: record._id,
-                                                                        collection: record.group || record.collection,
-                                                                    })
-                                                                    }
+                                                                    onDragStart={(e) => {
+                                                                        // Stops the collection header's dragstart from also arming a
+                                                                        // collection reorder — that is what made the collections jump.
+                                                                        e.stopPropagation();
+                                                                        dragRecord.current = {
+                                                                            id: record._id,
+                                                                            collection: getRecordCollectionId(record),
+                                                                        };
+                                                                        setDraggingRecordId(record._id);
+                                                                        setTiltedDragImage(e, e.currentTarget, color);
+                                                                    }}
+                                                                    onDragEnd={() => setDraggingRecordId(null)}
                                                                     onDragOver={(e) => e.preventDefault()}
                                                                     onDrop={(e) => {
                                                                         e.stopPropagation();
                                                                         handleRecordDropOnRecord(record);
                                                                     }}
-                                                                    className={`flex items-center min-w-max border-b border-slate-300 group transition-colors ${selectedRecordIds.has(record._id) ? "bg-slate-100/60" : "hover:bg-zinc-600/5"}`}
+                                                                    className={`flex items-stretch min-w-max border-b border-slate-300 group transition-colors ${selectedRecordIds.has(record._id) ? "bg-slate-100/60" : "hover:bg-zinc-600/5"} ${draggingRecordId === record._id ? "opacity-40" : ""}`}
                                                                 >
                                                                     {/* Checkbox */}
-                                                                    <div className={`w-10 shrink-0 flex items-center justify-center p-2 sticky left-0 z-20 border-r border-slate-300 ${selectedRecordIds.has(record._id) ? "bg-slate-100" : "bg-white"}`}>
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={selectedRecordIds.has(record._id)}
-                                                                            onChange={() => toggleRecordSelected(record._id)}
-                                                                            className="w-3.5 h-3.5 accent-[#415A77] cursor-pointer font-dmsans"
-                                                                        />
+                                                                    <div className={`flex items-center justify-center w-10 sticky left-0 z-20  ${selectedRecordIds.has(record._id) ? "bg-slate-100" : "bg-card"}`}>
+                                                                        <div className="shrink-0 w-full h-full flex items-center justify-center p-2 border-l border-slate-300">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={selectedRecordIds.has(record._id)}
+                                                                                onChange={() => toggleRecordSelected(record._id)}
+                                                                                className="w-3.5 h-3.5 accent-[#415A77] cursor-pointer font-dmsans"
+                                                                            />
+                                                                        </div>
                                                                     </div>
 
                                                                     {/* Record name — sticky, click-to-edit, auto-saves on blur */}
@@ -1631,6 +1958,7 @@ export default function ModulePage() {
                                                                                 column={column}
                                                                                 recordValue={rv}
                                                                                 width={getColWidth(column._id)}
+                                                                                workspaceId={workspaceId}
                                                                                 onSave={saveRecordValue}
                                                                                 onAddStatusOption={addStatusOption}
                                                                                 onUpdateStatusOptions={updateColumnStatusOptions}
@@ -1639,23 +1967,248 @@ export default function ModulePage() {
                                                                     })}
 
                                                                     {/* Trailing spacer */}
-                                                                    <div className="w-[120px] shrink-0" />
+                                                                    <div className="w-[120px] shrink-0 border-r border-slate-300" />
                                                                 </div>
                                                             ))}
 
                                                             {/* Add record row */}
-                                                            <div className="flex items-center min-w-max py-1 px-3 border-t border-slate-200">
-                                                                <div className="w-10 shrink-0 sticky left-0 z-10 bg-white" />
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setSelectedCollection(collection._id);
-                                                                        setShowRecordModal(true);
-                                                                    }}
-                                                                    className="text-sm flex items-center gap-2 transition py-2 px-3 cursor-pointer sticky left-10 z-10 bg-white rounded-md hover:bg-slate-100"
+                                                            <div className="flex items-stretch min-w-max bg-card">
+                                                                {/* Checkbox spacer */}
+                                                                <div className="flex items-center justify-center w-10 sticky left-0 z-10 bg-card">
+                                                                    <div className="shrink-0 w-full h-full rounded-bl-xl border-l border-b border-slate-300 flex items-center justify-center p-2 bg-card" />
+                                                                </div>
+
+                                                                {/* Sticky Record cell matching Record column width */}
+                                                                <div
+                                                                    className="shrink-0 px-2 py-1.5  border-b border-slate-300 text-sm font-google-sans flex items-center sticky left-10 z-10 bg-card "
+                                                                    style={{ width: getColWidth("recordName", 280), borderLeft: `3px solid ${color}` }}
                                                                 >
-                                                                    <IoAddOutline size={18} className="text-zinc-500" />
-                                                                    <span className="font-google-sans text-zinc-600 font-medium">Add Record</span>
-                                                                </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSelectedCollection(collection._id);
+                                                                            setShowRecordModal(true);
+                                                                        }}
+                                                                        className="text-sm flex items-center gap-1.5 transition py-1 px-2 cursor-pointer group"
+                                                                    >
+                                                                        <IoAddOutline size={18} className="text-zinc-500 group-hover:text-foreground transition-colors duration-200" />
+                                                                        <span className="font-google-sans text-zinc-600 font-semibold text-xs group-hover:text-foreground transition-colors duration-200">Add Record</span>
+                                                                    </button>
+                                                                </div>
+
+                                                                {/* Filler sized to the real columns + the trailing spacer, so this row
+                                                                    ends exactly where every other row does instead of stretching
+                                                                    across the whole scroll container. */}
+                                                                <div
+                                                                    className="shrink-0 bg-card border-b border-r border-slate-300"
+                                                                    style={{ width: tableTailWidth }}
+                                                                />
+                                                            </div>
+
+                                                            {/* ── Collection Column Summary / Calculations Footer Row ── */}
+                                                            <div className="flex items-stretch min-w-max bg-card rounded-b-lg text-xs text-slate-500 font-google-sans h-9">
+                                                                {/* Checkbox spacer */}
+                                                                <div className="flex items-center justify-center w-10 sticky left-0 z-10 bg-card">
+                                                                    <div className="shrink-0 w-full h-full  border-slate-300 flex items-center justify-center bg-card" />
+                                                                </div>
+
+                                                                {/* Record column count summary */}
+                                                                <div
+                                                                    className="sticky left-10 z-10 bg-card border-r border-slate-300 "
+                                                                >
+                                                                    <div
+                                                                        className="shrink-0 px-3 h-full flex items-center border-b rounded-bl-xl  border-slate-300 justify-end text-right font-medium text-[11px] text-slate-400"
+                                                                        style={{
+                                                                            width: getColWidth("recordName", 280),
+                                                                            borderLeft: `3px solid ${color}`
+                                                                        }}
+                                                                    >
+                                                                        <span style={{ color }}>
+                                                                            {collectionRecords.length}{" "}
+                                                                            {collectionRecords.length === 1 ? "record" : "records"}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Dynamic Column Summaries */}
+                                                                {columns.map((column) => {
+                                                                    // Find all record values for this column in this collection
+                                                                    const colRecordIds = new Set(collectionRecords.map((r) => r._id));
+                                                                    const colValues = recordValues.filter(
+                                                                        (v) => colRecordIds.has(v.record || v.item) && (v.column?._id || v.column) === column._id
+                                                                    );
+
+                                                                    if (column.type === "status") {
+                                                                        // Calculate status breakdown counts & proportions
+                                                                        const statusCounts: { [label: string]: { count: number; color: string } } = {};
+                                                                        let totalStatusCount = 0;
+
+                                                                        colValues.forEach((v) => {
+                                                                            const label = typeof v.value === "string" ? v.value : v.value?.label;
+                                                                            if (label && typeof label === "string") {
+                                                                                const matchedOption = column.options?.find((opt: any) => opt.label === label);
+                                                                                const optColor = matchedOption?.color || "#94A3B8";
+                                                                                if (!statusCounts[label]) {
+                                                                                    statusCounts[label] = { count: 0, color: optColor };
+                                                                                }
+                                                                                statusCounts[label].count += 1;
+                                                                                totalStatusCount += 1;
+                                                                            }
+                                                                        });
+
+                                                                        const statusEntries = Object.entries(statusCounts);
+
+                                                                        return (
+                                                                            <div
+                                                                                key={column._id}
+                                                                                className="shrink-0 px-2 flex flex-col justify-center items-center border-b border-r border-slate-300 bg-card h-full"
+                                                                                style={{ width: getColWidth(column._id) }}
+                                                                            >
+                                                                                {totalStatusCount > 0 ? (
+                                                                                    <div className="w-full flex flex-col items-center gap-0.5 px-1">
+                                                                                        <div
+                                                                                            className="w-full h-3 rounded-sm overflow-hidden flex bg-slate-100 shadow-inner cursor-pointer"
+                                                                                            title={statusEntries.map(([l, data]) => `${l}: ${data.count}`).join(", ")}
+                                                                                        >
+                                                                                            {statusEntries.map(([label, data]) => {
+                                                                                                const pct = (data.count / totalStatusCount) * 100;
+                                                                                                return (
+                                                                                                    <div
+                                                                                                        key={label}
+                                                                                                        style={{ width: `${pct}%`, backgroundColor: data.color }}
+                                                                                                        className="h-full transition-all"
+                                                                                                        title={`${label}: ${data.count} (${Math.round(pct)}%)`}
+                                                                                                    />
+                                                                                                );
+                                                                                            })}
+                                                                                        </div>
+                                                                                        <span className="text-[10px] text-slate-400 font-medium">
+                                                                                            {totalStatusCount} / {collectionRecords.length}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] text-slate-300 font-medium">-</span>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    if (column.type === "number") {
+                                                                        let numericSum = 0;
+                                                                        let hasNumber = false;
+                                                                        colValues.forEach((v) => {
+                                                                            const num = parseFloat(v.value);
+                                                                            if (!isNaN(num)) {
+                                                                                numericSum += num;
+                                                                                hasNumber = true;
+                                                                            }
+                                                                        });
+
+                                                                        return (
+                                                                            <div
+                                                                                key={column._id}
+                                                                                className="shrink-0 px-2 flex flex-col justify-center items-center border-b border-r border-slate-300 bg-card h-full"
+                                                                                style={{ width: getColWidth(column._id) }}
+                                                                            >
+                                                                                {hasNumber ? (
+                                                                                    <div className="text-center leading-tight">
+                                                                                        <span className="font-semibold text-[11px] text-slate-700">{numericSum}</span>
+                                                                                        <span className="text-[9px] text-slate-400 block font-normal -mt-0.5">sum</span>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] text-slate-300 font-medium">-</span>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    if (column.type === "rating") {
+                                                                        let totalRating = 0;
+                                                                        let ratingCount = 0;
+                                                                        colValues.forEach((v) => {
+                                                                            const num = parseRating(v.value);
+                                                                            if (num > 0) {
+                                                                                totalRating += num;
+                                                                                ratingCount += 1;
+                                                                            }
+                                                                        });
+                                                                        const avg = ratingCount > 0 ? (totalRating / ratingCount).toFixed(1) : null;
+
+                                                                        return (
+                                                                            <div
+                                                                                key={column._id}
+                                                                                className="shrink-0 px-2 flex flex-col justify-center items-center border-b border-r border-slate-300 bg-card h-full"
+                                                                                style={{ width: getColWidth(column._id) }}
+                                                                            >
+                                                                                {avg ? (
+                                                                                    <div className="text-center leading-tight">
+                                                                                        <span className="flex items-center justify-center gap-1">
+                                                                                            <StarRow value={parseFloat(avg)} size={11} />
+                                                                                            <span className="font-semibold text-[11px] text-amber-500 tabular-nums">{formatRating(parseFloat(avg))}</span>
+                                                                                        </span>
+                                                                                        <span className="text-[9px] text-slate-400 block font-normal -mt-0.5">avg</span>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] text-slate-300 font-medium">-</span>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    if (column.type === "person" || column.type === "people") {
+                                                                        const assignedIds = new Set<string>();
+                                                                        colValues.forEach((v) => {
+                                                                            parsePeopleValue(v.value).forEach((id) => assignedIds.add(id));
+                                                                        });
+                                                                        const assigned = [...assignedIds]
+                                                                            .map((id) => workspaceMembers.find((m) => memberUserId(m) === id))
+                                                                            .filter((m): m is (typeof workspaceMembers)[number] => Boolean(m));
+
+                                                                        return (
+                                                                            <div
+                                                                                key={column._id}
+                                                                                className="shrink-0 px-2 flex flex-col justify-center items-center border-b border-r border-slate-300 bg-card h-full"
+                                                                                style={{ width: getColWidth(column._id) }}
+                                                                            >
+                                                                                {assigned.length > 0 ? (
+                                                                                    <div className="flex items-center -space-x-1.5">
+                                                                                        {assigned.slice(0, 4).map((m) => (
+                                                                                            <PersonAvatar key={memberUserId(m)} member={m} size={18} />
+                                                                                        ))}
+                                                                                        {assigned.length > 4 && (
+                                                                                            <span className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-control text-[8px] font-semibold text-muted ring-2 ring-card">
+                                                                                                +{assigned.length - 4}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] text-slate-300 font-medium">-</span>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    // Default for text / file / date / etc.
+                                                                    const filledCount = colValues.filter((v) => v.value !== null && v.value !== undefined && v.value !== "").length;
+
+                                                                    return (
+                                                                        <div
+                                                                            key={column._id}
+                                                                            className="shrink-0 px-2 flex flex-col justify-center items-center border-b border-r border-slate-300 bg-card h-full"
+                                                                            style={{ width: getColWidth(column._id) }}
+                                                                        >
+                                                                            {filledCount > 0 ? (
+                                                                                <div className="text-center leading-tight">
+                                                                                    <span className="font-medium text-[10px] text-slate-500">{filledCount} filled</span>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <span className="text-[10px] text-slate-300 font-medium">-</span>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+
+                                                                {/* Trailing column spacer */}
+                                                                <div className="w-[120px] shrink-0 border-b border-r border-slate-300 rounded-br-lg bg-card" />
                                                             </div>
 
 
@@ -1669,7 +2222,7 @@ export default function ModulePage() {
                                         <div className="pt-2 pb-6 sticky left-0 z-30 w-fit">
                                             <button
                                                 onClick={openCollectionModal}
-                                                className="bg-white text-slate-800 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition cursor-pointer font-dmsans flex items-center gap-2 border border-slate-300 shadow-sm"
+                                                className="bg-card text-slate-800 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition cursor-pointer font-dmsans flex items-center gap-2 border border-slate-300 shadow-sm"
                                             >
                                                 <IoAddOutline size={18} className="text-slate-600" />
                                                 <span className="font-semibold text-slate-700">New Collection</span>
@@ -1684,7 +2237,7 @@ export default function ModulePage() {
                     {/* Column context menu */}
                     {colMenu && (
                         <div
-                            className="fixed border border-slate-300 rounded bg-white shadow-xl z-50 min-w-[180px]"
+                            className="fixed border border-slate-300 rounded bg-card shadow-xl z-50 min-w-[180px]"
                             style={{ top: colMenu.y, left: colMenu.x }}
                             onClick={(e) => e.stopPropagation()}
                         >
@@ -1791,7 +2344,7 @@ export default function ModulePage() {
                                     <button
                                         onClick={createRecord}
                                         disabled={creatingRecord}
-                                        className="flex-1 bg-white text-black py-2.5 rounded text-sm font-medium hover:bg-gray-100 transition cursor-pointer disabled:opacity-60 font-dmsans"
+                                        className="flex-1 bg-card text-foreground py-2.5 rounded text-sm font-medium hover:bg-gray-100 transition cursor-pointer disabled:opacity-60 font-dmsans"
                                     >
                                         {creatingRecord ? "Creating…" : "Add Record"}
                                     </button>
@@ -1806,44 +2359,47 @@ export default function ModulePage() {
                         </div>
                     )}
 
+                    {/* Collection Menu Dropdown */}
+                    {collectionMenu && (
+                        <CollectionMenu
+                            x={collectionMenu.x}
+                            y={collectionMenu.y}
+                            collection={collectionMenu.collection}
+                            copyingId={copyingId}
+                            copiedId={copiedId}
+                            handleCopyCollectionId={handleCopyCollectionId}
+                            openEditModal={(col) => {
+                                setCollectionMenu(null);
+                                setEditCollectionModal(col);
+                            }}
+                            openDeleteModal={(id) => {
+                                setCollectionMenu(null);
+                                setDeleteCollectionModal(id);
+                            }}
+                        />
+                    )}
+
+                    {/* Edit Collection Modal */}
+                    {editCollectionModal && (
+                        <EditCollectionModal
+                            open={!!editCollectionModal}
+                            setOpen={(open) => !open && setEditCollectionModal(null)}
+                            collection={editCollectionModal}
+                            collectionColorPalette={COLLECTION_COLOR_PALETTE}
+                            updating={updatingCollection}
+                            updateCollection={updateCollection}
+                        />
+                    )}
+
                     {/* Delete Collection Modal */}
                     {deleteCollectionModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                            <div className="w-full max-w-md rounded-xl bg-[#1E293B] shadow-2xl">
-                                <div className="p-6">
-                                    <h2 className="font-dmsans font-semibold text-white">
-                                        Delete Collection
-                                    </h2>
-
-                                    <p className="mt-3 text-sm font-dmsans text-slate-500">
-                                        Are you sure you want to delete this Collection?
-                                    </p>
-
-                                    <p className="mt-2 text-sm font-dmsans text-white">
-                                        This action cannot be undone. All records inside this Collection will also be deleted.
-                                    </p>
-
-                                    <div className="mt-6 flex justify-end gap-3">
-                                        <button
-                                            onClick={() => setDeleteCollectionModal(null)}
-                                            className="px-4 py-2 rounded-xl bg-slate-700 text-white hover:bg-slate-600 transition cursor-pointer"
-                                        >
-                                            Cancel
-                                        </button>
-
-                                        <button
-                                            onClick={() => deleteCollection(deleteCollectionModal)}
-                                            disabled={deletingCollectionId === deleteCollectionModal}
-                                            className="px-4 py-2 rounded-xl bg-white text-[#415A77] hover:bg-white/80 transition disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-                                        >
-                                            {deletingCollectionId === deleteCollectionModal
-                                                ? "Deleting..."
-                                                : "Delete Collection"}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <DeleteCollectionModal
+                            open={!!deleteCollectionModal}
+                            setOpen={(open) => !open && setDeleteCollectionModal(null)}
+                            collectionId={deleteCollectionModal}
+                            deletingCollectionId={deletingCollectionId}
+                            deleteCollection={deleteCollection}
+                        />
                     )}
 
                     {/* Floating Selected Records Modal */}

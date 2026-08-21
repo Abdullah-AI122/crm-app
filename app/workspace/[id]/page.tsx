@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { TbClipboardFilled } from "react-icons/tb";
+import { useState } from "react";
+import { useParams } from "next/navigation";
 import { ImUngroup } from "react-icons/im";
 import { FaPlus } from "react-icons/fa";
 
@@ -13,28 +12,11 @@ import DeleteModuleModal from "@/components/ui/modals/deleteModuleConfermation";
 import ProfileDropdown from "@/components/Profile";
 import MembersButton from "@/components/ui/buttons/Membersbutton";
 
-import { getWorkspace } from "@/data/Workspaces.data";
-import { getMembers, inviteMember, removeMember } from "@/data/Members.data";
-import { getModules, createModule, deleteModule } from "@/data/Modules.data";
-import { PALETTE, ROLE_COLORS } from "@/data/data";
+import { PALETTE } from "@/data/data";
 import ModuleCard from "@/components/ui/cards/moduleCard";
-
-interface Member {
-    _id: string;
-    role: string;
-    status: string;
-    user: {
-        _id: string;
-        firstName: string;
-        lastName: string;
-        email: string;
-    };
-}
-
-interface WorkspaceDetails {
-    _id: string;
-    name: string;
-}
+import { useGetWorkspaceQuery } from "@/store/api/workspaces.api";
+import { useGetMembersQuery, useAddMemberMutation, useRemoveMemberMutation } from "@/store/api/members.api";
+import { useGetModulesQuery, useCreateModuleMutation, useDeleteModuleMutation } from "@/store/api/modules.api";
 
 
 function colorFor(id: string) {
@@ -48,98 +30,117 @@ function colorFor(id: string) {
 
 export default function WorkspacePage() {
     const params = useParams();
-    const router = useRouter();
     const workspaceId = params.id as string;
 
-    const [workspace, setWorkspace] = useState<WorkspaceDetails | null>(null);
-    const [members, setMembers] = useState<Member[]>([]);
-    const [loading, setLoading] = useState(true);
     const [showInvite, setShowInvite] = useState(false);
     const [userId, setUserId] = useState("");
     const [role, setRole] = useState("member");
-    const [adding, setAdding] = useState(false);
 
-    const [modules, setModules] = useState<any[]>([]);
-    const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
     const [deleteModuleModal, setDeleteModuleModal] = useState<string | null>(null);
     const [showModuleModal, setShowModuleModal] = useState(false);
     const [moduleName, setModuleName] = useState("");
     const [moduleDescription, setModuleDescription] = useState("");
-    const [creatingModule, setCreatingModule] = useState(false);
 
-    // Helper Callers
-    const fetchWorkspaceData = () => getWorkspace(workspaceId, setWorkspace);
-    const fetchMembersData = () => getMembers(workspaceId, setMembers, setLoading);
-    const fetchModulesData = () => getModules(workspaceId, setModules);
+    // Three cached queries. `modules` is the same cache entry the Sidebar reads,
+    // so this route no longer double-fetches it.
+    const { data: workspace } = useGetWorkspaceQuery(workspaceId, { skip: !workspaceId });
+    const { data: members = [] } = useGetMembersQuery(workspaceId, { skip: !workspaceId });
+    const { data: modules = [] } = useGetModulesQuery(workspaceId, { skip: !workspaceId });
 
-    const handleInviteMember = () =>
-        inviteMember({
-            workspaceId,
-            userId,
-            role,
-            setAdding,
-            setUserId,
-            setRole,
-            setShowInvite,
-            getMembersData: fetchMembersData,
-        });
+    const [addMember, { isLoading: adding }] = useAddMemberMutation();
+    const [removeMemberMutation] = useRemoveMemberMutation();
+    const [createModuleMutation, { isLoading: creatingModule }] = useCreateModuleMutation();
+    const [deleteModuleMutation] = useDeleteModuleMutation();
 
-    const handleRemoveMember = (memberUserId: string) =>
-        removeMember({
-            workspaceId,
-            memberUserId,
-            getMembersData: fetchMembersData,
-        });
+    const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
 
-    const handleCreateModule = () =>
-        createModule({
-            workspaceId,
-            moduleName,
-            moduleDescription,
-            setCreatingModule,
-            setModuleName,
-            setModuleDescription,
-            setShowModuleModal,
-            getModulesData: fetchModulesData,
-        });
-
-    const handleDeleteModule = (moduleId: string) =>
-        deleteModule({
-            moduleId,
-            setDeletingModuleId,
-            setModules,
-            setDeleteModuleModal,
-        });
-
-    // Effects
-    useEffect(() => {
-        if (workspaceId) {
-            fetchWorkspaceData();
-            fetchMembersData();
-            fetchModulesData();
+    const handleInviteMember = async () => {
+        if (!userId.trim()) return;
+        try {
+            await addMember({ workspaceId, userId, role }).unwrap();
+            setUserId("");
+            setRole("member");
+            setShowInvite(false);
+        } catch (error) {
+            console.error("Invite member failed:", error);
         }
-    }, [workspaceId]);
+    };
+
+    const handleRemoveMember = async (memberUserId: string) => {
+        try {
+            await removeMemberMutation({ workspaceId, memberUserId }).unwrap();
+        } catch (error) {
+            console.error("Remove member failed:", error);
+        }
+    };
+
+    const handleCreateModule = async () => {
+        if (!moduleName.trim()) return;
+        try {
+            await createModuleMutation({
+                workspaceId,
+                name: moduleName,
+                description: moduleDescription
+            }).unwrap();
+            setModuleName("");
+            setModuleDescription("");
+            setShowModuleModal(false);
+        } catch (error) {
+            console.error("Create module failed:", error);
+        }
+    };
+
+    const handleDeleteModule = async (moduleId: string) => {
+        setDeletingModuleId(moduleId);
+        try {
+            await deleteModuleMutation({ moduleId, workspaceId }).unwrap();
+            setDeleteModuleModal(null);
+        } catch (error) {
+            console.error("Delete module failed:", error);
+        } finally {
+            setDeletingModuleId(null);
+        }
+    };
 
     const workspaceColor = colorFor(String(workspaceId));
     const workspaceInitial = (workspace?.name || "W").trim().charAt(0).toUpperCase();
 
+    const moduleCount = modules.length;
+    const memberCount = members.length;
+
     // Render
     return (
         <>
-            <section className="flex">
+            <section className="flex bg-canvas">
                 <Sidebar />
-                <div className="min-h-screen w-full" >
+
+                {/* Shell card — the frame every page sits in (LAYOUT.md §7) */}
+                <div className="min-h-screen w-full flex flex-col bg-panel rounded-l-2xl overflow-hidden shadow-sm">
 
                     {/* Top navbar */}
-                    <div className="sticky top-0 z-20">
-                        <div className="w-full mx-auto px-6 h-14 flex items-center justify-between gap-4">
+                    <header className="sticky top-0 z-20 bg-panel border-b border-slate-200">
+                        <div className="w-full mx-auto px-6 h-16 flex items-center justify-between gap-4">
                             <div className="flex items-center gap-3 min-w-0">
+
+                                {/* Workspace tile — colour hashed from the id (LAYOUT.md §4.5) */}
+                                <div
+                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold shadow-sm font-dmsans"
+                                    style={{
+                                        backgroundColor: workspaceColor.bg,
+                                        color: workspaceColor.accent,
+                                    }}
+                                >
+                                    {workspaceInitial}
+                                </div>
+
                                 <div className="min-w-0">
-                                    <h1 className="text-sm font-semibold truncate font-dmsans">
+                                    <h1 className="text-sm font-semibold text-slate-900 truncate font-dmsans">
                                         {workspace?.name || "Workspace"}
                                     </h1>
-                                    <p className="text-[11px] text-slate-400 truncate font-dmsans">
-                                        {modules.length} modules · {members.length} members
+                                    <p className="text-[11px] text-muted truncate font-dmsans">
+                                        {moduleCount} {moduleCount === 1 ? "module" : "modules"}
+                                        {" · "}
+                                        {memberCount} {memberCount === 1 ? "member" : "members"}
                                     </p>
                                 </div>
                             </div>
@@ -153,44 +154,79 @@ export default function WorkspacePage() {
                                 <ProfileDropdown />
                             </div>
                         </div>
-                    </div>
+                    </header>
 
                     {/* Content */}
-                    <div className=" mx-auto px-6 py-8">
+                    <div className="flex-1 px-6 py-6">
 
                         {/* Modules section */}
                         <div className="mb-10">
-                            {modules.length === 0 ? (
-                                <div className="border border-dashed border-slate-600 rounded-xl p-16 text-center flex items-center justify-center flex-col" style={{ background: "#111727" }}>
-                                    <div className="text-4xl mb-4 inline-block">
-                                        <ImUngroup className="text-slate-500" />
+
+                            {/* Section header. Creating happens from the add tile at the
+                                end of the grid, so there is no button up here. */}
+                            <div className="mb-5 min-w-0">
+                                <h2 className="text-lg font-semibold text-slate-900 font-dmsans">
+                                    Modules
+                                </h2>
+                                <p className="mt-0.5 text-xs text-muted font-dmsans">
+                                    {moduleCount === 0
+                                        ? "Nothing here yet"
+                                        : "Open a module to work on its board"}
+                                </p>
+                            </div>
+
+                            {moduleCount === 0 ? (
+                                <div className="rounded-xl border border-dashed border-slate-300 bg-card/60 px-6 py-20 text-center">
+                                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-accent/10 text-accent">
+                                        <ImUngroup size={24} />
                                     </div>
-                                    <h2 className="text-lg font-semibold text-white mb-1 font-dmsans">No modules yet</h2>
-                                    <p className="text-slate-400 mb-5 text-sm font-dmsans">Create your first module to start organizing work</p>
+
+                                    <h3 className="text-lg font-semibold text-slate-900 font-dmsans">
+                                        No modules yet
+                                    </h3>
+
+                                    <p className="mt-1 text-sm text-muted font-dmsans">
+                                        Create your first module to start organizing work
+                                    </p>
+
                                     <button
                                         onClick={() => setShowModuleModal(true)}
-                                        className="bg-white text-slate-800 px-6 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition cursor-pointer font-dmsans flex items-center gap-2"
+                                        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-hover cursor-pointer font-dmsans"
                                     >
-                                        <FaPlus className="text-slate-600" /> Create Module
+                                        <FaPlus size={11} />
+                                        Create Module
                                     </button>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-                                    {modules.map((module) => {
-                                        const color = colorFor(String(module._id));
+                                // auto-fill tracks capped at the card's own 360px width, so
+                                // cards pack from the left with only gap-5 between them.
+                                // Equal 1/3 columns left a wide gap beside a 360px card.
+                                <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,360px))] gap-5">
+                                    {modules.map((module) => (
+                                        <ModuleCard
+                                            key={module._id}
+                                            module={module}
+                                            workspaceId={workspaceId}
+                                            onDelete={(moduleId) => {
+                                                setDeleteModuleModal(moduleId);
+                                            }}
+                                            deletingModuleId={deletingModuleId}
+                                        />
+                                    ))}
 
-                                        return (
-                                            <ModuleCard
-                                                key={module._id}
-                                                module={module}
-                                                workspaceId={workspaceId}
-                                                onDelete={(moduleId) => {
-                                                    setDeleteModuleModal(moduleId);
-                                                }}
-                                                deletingModuleId={deletingModuleId}
-                                            />
-                                        );
-                                    })}
+                                    {/* Add tile — keeps the create action next to the
+                                        cards, where the eye already is. */}
+                                    <button
+                                        onClick={() => setShowModuleModal(true)}
+                                        className="group flex min-h-[220px] w-full max-w-[360px] flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-slate-300 bg-card/40 transition hover:border-accent hover:bg-card/70 cursor-pointer"
+                                    >
+                                        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10 text-accent transition group-hover:bg-accent group-hover:text-white">
+                                            <FaPlus size={14} />
+                                        </span>
+                                        <span className="text-sm font-semibold text-slate-700 font-dmsans">
+                                            New Module
+                                        </span>
+                                    </button>
                                 </div>
                             )}
                         </div>

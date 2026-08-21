@@ -28,7 +28,7 @@ export default function SelectedRecordsModal({
     if (!open || !mounted || selectedCount === 0) return null;
 
     return createPortal(
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white border border-slate-200 text-slate-800 px-4 py-2.5 rounded-md shadow-xl flex items-center gap-3.5 font-dmsans">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-card border border-slate-200 text-slate-800 px-4 py-2.5 rounded-md shadow-xl flex items-center gap-3.5 font-dmsans">
             <div className="flex items-center gap-2">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#415A77] text-white text-[11px] font-bold">
                     {selectedCount}

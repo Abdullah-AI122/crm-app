@@ -1,69 +1,116 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Avatar } from "@heroui/react";
-import { getUser, AuthUser } from "@/lib/auth";
+import { useEffect, useRef, useState } from "react";
+import { getUser, updateUser, AuthUser } from "@/lib/auth";
 import {
     HiOutlineUser,
     HiOutlineEnvelope,
     HiOutlineIdentification,
-    HiOutlineKey,
-    HiOutlineClipboardDocument,
-    HiOutlineArrowPath,
-    HiOutlineCheck,
+    HiOutlineCamera,
+    HiOutlineTrash,
+    HiOutlineExclamationTriangle,
 } from "react-icons/hi2";
+import { AiOutlineLoading3Quarters } from "react-icons/ai";
 import UserSidebar from "@/components/userSidebar";
-import { apiRequest } from "@/lib/api";
+import {
+    useDeleteAvatarMutation,
+    useUploadAvatarMutation,
+} from "@/store/api/uploads.api";
+import {
+    UPLOAD_RULES,
+    compressImage,
+    formatBytes,
+    previewUrl,
+    validateFile,
+} from "@/lib/imageCompression";
+
+const RULES = UPLOAD_RULES.avatar;
 
 export default function UserPage() {
     const [user, setUser] = useState<AuthUser | null>(null);
-    const [apiKey, setApiKey] = useState<string | null>(null);
-    const [apiKeyLoading, setApiKeyLoading] = useState(false);
-    const [copied, setCopied] = useState(false);
+
+    // Set the moment a file is picked so the new picture appears before the
+    // upload finishes; cleared once the Cloudinary URL lands.
+    const [optimisticAvatar, setOptimisticAvatar] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const objectUrl = useRef<string | null>(null);
+
+    const [uploadAvatar, { isLoading: uploading }] = useUploadAvatarMutation();
+    const [deleteAvatar, { isLoading: removing }] = useDeleteAvatarMutation();
 
     useEffect(() => {
         setUser(getUser());
-        fetchApiKey();
+        return () => {
+            if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+        };
     }, []);
 
-    const fetchApiKey = async () => {
+    const busy = uploading || removing;
+    const avatarSrc = optimisticAvatar || user?.avatar || "";
+    const initial = user?.firstName?.[0]?.toUpperCase() || "U";
+
+    const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+
+        setError(null);
+        setNotice(null);
+
+        const check = validateFile(file, "avatar");
+        if (!check.ok) {
+            setError(check.error ?? "That file cannot be used");
+            return;
+        }
+
+        // Square-ish and small: the server crops to 512x512 anyway.
+        const compressed = await compressImage(file, "avatar");
+
+        if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+        objectUrl.current = previewUrl(compressed);
+        setOptimisticAvatar(objectUrl.current);
+
         try {
-            const res = await apiRequest("/api/api-key");
-            const data = await res.json();
-            setApiKey(data.apiKey || null);
-        } catch {
-            setApiKey(null);
+            const result = await uploadAvatar(compressed).unwrap();
+
+            updateUser({ avatar: result.avatar });
+            setUser(getUser());
+            setOptimisticAvatar(null);
+            setNotice(
+                `Picture updated — ${formatBytes(file.size)} compressed to ${formatBytes(result.bytes)}`
+            );
+        } catch (err: unknown) {
+            const message =
+                (err as { data?: { message?: string } })?.data?.message ??
+                "Could not upload your picture. Please try again.";
+            setError(message);
+            setOptimisticAvatar(null);
         }
     };
 
-    const handleChangeKey = async () => {
-        setApiKeyLoading(true);
-        try {
-            const res = await apiRequest("/api/api-key/generate", {
-                method: "POST",
-            });
-            const data = await res.json();
-            setApiKey(data.apiKey || null);
-        } catch {
-            console.error("Failed to change API key");
-        } finally {
-            setApiKeyLoading(false);
-        }
-    };
+    const handleRemove = async () => {
+        setError(null);
+        setNotice(null);
 
-    const handleCopy = async () => {
-        if (!apiKey) return;
         try {
-            await navigator.clipboard.writeText(apiKey);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch {
-            console.error("Failed to copy");
+            await deleteAvatar().unwrap();
+            updateUser({ avatar: "" });
+            setUser(getUser());
+            setOptimisticAvatar(null);
+            setNotice("Profile picture removed");
+        } catch (err: unknown) {
+            const message =
+                (err as { data?: { message?: string } })?.data?.message ??
+                "Could not remove your picture.";
+            setError(message);
         }
     };
 
     return (
-        <div className="min-h-screen bg-white">
+        <div className="min-h-screen bg-card">
             <div className="flex">
                 <UserSidebar />
 
@@ -80,16 +127,49 @@ export default function UserPage() {
 
                     <div className="max-w-4xl">
                         <div className="flex items-center gap-5 mb-8">
-                            <Avatar className="w-20 h-20 text-2xl border-2 border-slate-200">
-                                <Avatar.Image src="https://iconape.com/wp-content/files/jh/12297/png/user-circle.png" />
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept={RULES.accept}
+                                className="hidden"
+                                onChange={handlePick}
+                            />
 
-                                <Avatar.Fallback>
-                                    {user?.firstName?.[0]?.toUpperCase() ||
-                                        "U"}
-                                </Avatar.Fallback>
-                            </Avatar>
+                            <button
+                                type="button"
+                                onClick={() => !busy && fileInputRef.current?.click()}
+                                disabled={busy}
+                                title="Change profile picture"
+                                className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-slate-200 bg-slate-100 transition cursor-pointer disabled:cursor-wait"
+                            >
+                                {avatarSrc ? (
+                                    <img
+                                        src={avatarSrc}
+                                        alt={user?.firstName || "Profile picture"}
+                                        className="h-full w-full object-cover"
+                                    />
+                                ) : (
+                                    <span className="flex h-full w-full items-center justify-center bg-slate-700 text-2xl font-semibold text-white font-dmsans">
+                                        {initial}
+                                    </span>
+                                )}
 
-                            <div>
+                                <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 transition group-hover:opacity-100">
+                                    {uploading ? (
+                                        <AiOutlineLoading3Quarters size={20} className="animate-spin" />
+                                    ) : (
+                                        <HiOutlineCamera size={20} />
+                                    )}
+                                </span>
+
+                                {uploading && (
+                                    <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
+                                        <AiOutlineLoading3Quarters size={20} className="animate-spin" />
+                                    </span>
+                                )}
+                            </button>
+
+                            <div className="min-w-0">
                                 <h2 className="text-xl font-semibold text-slate-900 font-dmsans">
                                     {user?.firstName || "User"}
                                 </h2>
@@ -97,8 +177,48 @@ export default function UserPage() {
                                 <p className="mt-1 text-sm text-slate-500 font-dmsans">
                                     {user?.email || "-"}
                                 </p>
+
+                                <div className="mt-2 flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={busy}
+                                        className="text-xs font-medium text-[#FB923C] transition hover:text-[#EA580C] font-dmsans cursor-pointer disabled:opacity-50"
+                                    >
+                                        {user?.avatar ? "Change picture" : "Upload picture"}
+                                    </button>
+
+                                    {user?.avatar && (
+                                        <button
+                                            type="button"
+                                            onClick={handleRemove}
+                                            disabled={busy}
+                                            className="flex items-center gap-1 text-xs font-medium text-slate-500 transition hover:text-red-600 font-dmsans cursor-pointer disabled:opacity-50"
+                                        >
+                                            <HiOutlineTrash size={13} />
+                                            Remove
+                                        </button>
+                                    )}
+                                </div>
+
+                                <p className="mt-1.5 text-[11px] text-slate-400 font-dmsans">
+                                    {RULES.hint} · resized and compressed automatically
+                                </p>
                             </div>
                         </div>
+
+                        {error && (
+                            <div className="mb-6 flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 font-dmsans">
+                                <HiOutlineExclamationTriangle size={14} className="mt-px shrink-0" />
+                                <span>{error}</span>
+                            </div>
+                        )}
+
+                        {notice && !error && (
+                            <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-700 font-dmsans">
+                                {notice}
+                            </div>
+                        )}
 
                         <div className="border-t border-slate-200 pt-7">
                             <h3 className="text-sm font-medium text-slate-900 font-dmsans mb-5">
@@ -147,74 +267,6 @@ export default function UserPage() {
                                         {user?.id || "-"}
                                     </p>
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* API Key Section */}
-                        <div className="border-t border-slate-200 pt-7 mt-8">
-                            <div className="flex items-center gap-2 mb-1">
-                                <HiOutlineKey className="w-4 h-4 text-slate-700" />
-                                <h3 className="text-sm font-medium text-slate-900 font-dmsans">
-                                    API Key
-                                </h3>
-                            </div>
-
-                            <p className="text-xs text-slate-500 font-dmsans mb-5">
-                                Use this permanent global key to access your CRM data via external applications. Keep it secret — treat it like a password.
-                            </p>
-
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-
-                                {/* Key display */}
-                                <div className="flex items-center gap-2">
-                                    <div className="relative flex-1">
-                                        <input
-                                            type="text"
-                                            readOnly
-                                            value={apiKey || "Loading API Key..."}
-                                            className="w-full px-3 py-2.5 pr-10 rounded-md border border-slate-200 bg-white text-sm text-slate-800 font-mono tracking-tight focus:outline-none cursor-default select-all"
-                                        />
-                                    </div>
-
-                                    {/* Copy button */}
-                                    {apiKey && (
-                                        <button
-                                            onClick={handleCopy}
-                                            className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-md border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors font-dmsans shrink-0"
-                                            title="Copy to clipboard"
-                                        >
-                                            {copied ? (
-                                                <>
-                                                    <HiOutlineCheck className="w-4 h-4 text-emerald-500" />
-                                                    <span className="text-emerald-600">Copied!</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <HiOutlineClipboardDocument className="w-4 h-4" />
-                                                    <span>Copy</span>
-                                                </>
-                                            )}
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Action button */}
-                                <div className="flex items-center gap-2 mt-4">
-                                    <button
-                                        onClick={handleChangeKey}
-                                        disabled={apiKeyLoading}
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-dmsans"
-                                    >
-                                        <HiOutlineArrowPath
-                                            className={`w-4 h-4 ${apiKeyLoading ? "animate-spin" : ""}`}
-                                        />
-                                        Change
-                                    </button>
-                                </div>
-
-                                <p className="text-xs text-slate-400 font-dmsans mt-3">
-                                    Changing your key will immediately invalidate the previous key.
-                                </p>
                             </div>
                         </div>
 

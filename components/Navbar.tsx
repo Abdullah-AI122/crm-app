@@ -22,7 +22,7 @@ export default function Navbar() {
     const [menuOpen, setMenuOpen] = useState(false);
 
     return (
-        <nav className="relative z-50 flex w-full items-center justify-between border-b border-slate-200 bg-white px-6 py-4 sm:px-10">
+        <nav className="relative z-50 flex w-full items-center justify-between border-b border-slate-200 bg-card px-6 py-4 sm:px-10">
             <Link
                 href="/"
                 className="flex cursor-pointer items-center gap-3"
@@ -35,7 +35,7 @@ export default function Navbar() {
                     />
                 </div>
 
-                <span className="font-google-sans font-bold text-black">
+                <span className="font-google-sans font-bold text-foreground">
                     Collaborate X
                 </span>
             </Link>
@@ -45,7 +45,7 @@ export default function Navbar() {
                     <Link
                         key={link.href}
                         href={link.href}
-                        className="cursor-pointer text-sm font-medium text-slate-600 transition-colors hover:text-black"
+                        className="cursor-pointer text-sm font-medium text-slate-600 transition-colors hover:text-foreground"
                     >
                         {link.label}
                     </Link>
@@ -59,8 +59,8 @@ export default function Navbar() {
                         href={link.href}
                         className={
                             link.type === "primary"
-                                ? "cursor-pointer rounded-lg bg-[#FF6B6B] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#ff5252]"
-                                : "cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:text-black"
+                                ? "cursor-pointer rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#ff5252]"
+                                : "cursor-pointer rounded-lg px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:text-foreground"
                         }
                     >
                         {link.label}
@@ -72,7 +72,7 @@ export default function Navbar() {
                 type="button"
                 aria-label="Toggle menu"
                 onClick={() => setMenuOpen(!menuOpen)}
-                className="cursor-pointer text-slate-700 transition-colors hover:text-black md:hidden"
+                className="cursor-pointer text-slate-700 transition-colors hover:text-foreground md:hidden"
             >
                 {menuOpen ? (
                     <X className="h-6 w-6" />
@@ -82,13 +82,13 @@ export default function Navbar() {
             </button>
 
             {menuOpen && (
-                <div className="absolute left-0 right-0 top-full flex flex-col gap-4 border-b border-slate-200 bg-white px-6 py-5 shadow-lg md:hidden">
+                <div className="absolute left-0 right-0 top-full flex flex-col gap-4 border-b border-slate-200 bg-card px-6 py-5 shadow-lg md:hidden">
                     {navLinks.map((link) => (
                         <Link
                             key={link.href}
                             href={link.href}
                             onClick={() => setMenuOpen(false)}
-                            className="cursor-pointer font-google-sans font-medium text-slate-600 transition-colors hover:text-black"
+                            className="cursor-pointer font-google-sans font-medium text-slate-600 transition-colors hover:text-foreground"
                         >
                             {link.label}
                         </Link>
@@ -102,8 +102,8 @@ export default function Navbar() {
                                 onClick={() => setMenuOpen(false)}
                                 className={
                                     link.type === "primary"
-                                        ? "w-fit cursor-pointer rounded-lg bg-[#FF6B6B] px-4 py-2 text-sm font-semibold text-white font-google-sans transition-colors hover:bg-[#ff5252]"
-                                        : "cursor-pointer text-sm font-semibold text-slate-700 font-google-sans transition-colors hover:text-black"
+                                        ? "w-fit cursor-pointer rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white font-google-sans transition-colors hover:bg-[#ff5252]"
+                                        : "cursor-pointer text-sm font-semibold text-slate-700 font-google-sans transition-colors hover:text-foreground"
                                 }
                             >
                                 {link.label}

@@ -38,7 +38,7 @@ export default function CreateWorkspace({
             onClick={handleClose}
         >
             <div
-                className="bg-white w-full max-w-md rounded p-6"
+                className="bg-card w-full max-w-md rounded p-6"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex items-center justify-between mb-4">

@@ -132,7 +132,7 @@ export default function Cell({ record, column, recordValue, onSave, onAddStatusO
                 {statusOpen && menuPos && createPortal(
                     <div
                         ref={panelRef}
-                        className="fixed z-50 bg-white border border-slate-200 rounded-lg shadow-2xl p-2 w-56 font-dmsans"
+                        className="fixed z-50 bg-card border border-slate-200 rounded-lg shadow-2xl p-2 w-56 font-dmsans"
                         style={{ top: menuPos.top, left: menuPos.left }}
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -281,7 +281,7 @@ export default function Cell({ record, column, recordValue, onSave, onAddStatusO
     if (editing) {
         return (
             <div
-                className="shrink-0 h-10 border-r border-slate-300 flex items-center bg-white/5"
+                className="shrink-0 h-10 border-r border-slate-300 flex items-center bg-card/5"
                 style={{ width }}
             >
                 <input

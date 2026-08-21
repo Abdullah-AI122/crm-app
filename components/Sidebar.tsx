@@ -3,52 +3,139 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
-import { apiRequest } from "@/lib/api";
-import { useWorkspace } from "@/context/WorkspaceContext";
+import Image from "next/image";
+import Link from "next/link";
 import { getUser, logout, AuthUser } from "@/lib/auth";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { setActiveWorkspaceId } from "@/store/slices/ui.slice";
+import { selectActiveWorkspaceId } from "@/store/selectors/workspace.selectors";
+import {
+    useGetWorkspacesQuery,
+    useCreateWorkspaceMutation
+} from "@/store/api/workspaces.api";
+import { useGetModulesQuery } from "@/store/api/modules.api";
 import { RiAddLine } from "react-icons/ri";
 import {
-    HiOutlineXMark, HiOutlineExclamationTriangle,
+    HiOutlineXMark,
+    HiOutlineExclamationTriangle,
+    HiOutlineSquares2X2,
+    HiOutlineBuildingOffice2,
+    HiOutlineChevronRight,
+    HiOutlineArrowRightOnRectangle
 } from "react-icons/hi2";
-import { BsCheck } from "react-icons/bs";
+import { BsCheck2 } from "react-icons/bs";
 import { TbCards } from "react-icons/tb";
-import Image from "next/image";
 import logo from "@/app/assets/Logo.png";
-import { FaChevronDown } from "react-icons/fa";
+import { PALETTE } from "@/data/data";
+import type { Workspace } from "@/store/types";
 
-
-import { Blocks, Building2 } from "lucide-react";
-import Link from "next/link";
-interface Workspace {
-    _id: string;
-    name: string;
-    totalModules?: number;
+/** Stable per-entity tint pair, hashed from the id (LAYOUT.md §4.5). */
+function colorFor(id: string): { bg: string; accent: string } {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return PALETTE[Math.abs(hash) % PALETTE.length];
 }
-interface Module {
-    _id: string;
-    name: string;
+
+function initialsOf(value: string): string {
+    return (value || "?").trim().charAt(0).toUpperCase();
+}
+
+/** Collapsible section header: coloured icon chip, label, count, optional action. */
+function SectionHeader({
+    icon,
+    tint,
+    label,
+    count,
+    open,
+    onToggle,
+    action
+}: {
+    icon: React.ReactNode;
+    tint: string;
+    label: string;
+    count?: number;
+    open: boolean;
+    onToggle: () => void;
+    action?: React.ReactNode;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-2 pr-1">
+            <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={open}
+                className="group flex flex-1 items-center gap-2.5 rounded-lg px-2 py-2 transition hover:bg-gray-200/40 cursor-pointer"
+            >
+                <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
+                    style={{ backgroundColor: tint }}
+                >
+                    {icon}
+                </span>
+
+                <span className="text-sm font-bold font-google-sans text-slate-800">
+                    {label}
+                </span>
+
+                {typeof count === "number" && (
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                        {count}
+                    </span>
+                )}
+
+                <HiOutlineChevronRight
+                    className={`ml-auto h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${open ? "rotate-90" : ""
+                        }`}
+                />
+            </button>
+
+            {action}
+        </div>
+    );
+}
+
+function RowSkeleton({ rows = 3 }: { rows?: number }) {
+    return (
+        <div className="space-y-1.5 px-2 py-1">
+            {Array.from({ length: rows }).map((_, i) => (
+                <div
+                    key={i}
+                    className="h-8 rounded-lg bg-gray-200/70 animate-pulse"
+                    style={{ width: `${72 + ((i * 13) % 28)}%`, animationDelay: `${i * 80}ms` }}
+                />
+            ))}
+        </div>
+    );
 }
 
 export default function Sidebar() {
     const router = useRouter();
     const pathname = usePathname();
 
-    const { workspaceId, setWorkspaceId } = useWorkspace();
+    const dispatch = useAppDispatch();
+    const workspaceId = useAppSelector(selectActiveWorkspaceId);
 
     const [user, setUser] = useState<AuthUser | null>(null);
-    const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-    const [modules, setModules] = useState<Module[]>([]);
-    const [loadingWorkspaces, setLoadingWorkspaces] = useState(true);
-    const [loadingModules, setLoadingModules] = useState(false);
+
+    // Cached and shared: navigating between routes no longer refetches either list.
+    const { data: workspaces = [], isLoading: loadingWorkspaces } = useGetWorkspacesQuery();
+    const { data: modules = [], isLoading: loadingModules } = useGetModulesQuery(
+        workspaceId,
+        { skip: !workspaceId }
+    );
+
+    const [createWorkspaceMutation, { isLoading: creating }] = useCreateWorkspaceMutation();
+
     // New UI state for create workspace modal
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newWorkspaceName, setNewWorkspaceName] = useState("");
-    const [creating, setCreating] = useState(false);
     const [createError, setCreateError] = useState("");
 
     const [openModule, setOpenModule] = useState(true);
 
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(true);
 
     useEffect(() => {
         if (typeof window !== "undefined") {
@@ -56,84 +143,17 @@ export default function Sidebar() {
         }
     }, []);
 
+    // Pick a default workspace once the list arrives (or when the saved one disappears).
     useEffect(() => {
-        loadWorkspaces();
-    }, [pathname]);
-
-    useEffect(() => {
-        if (workspaceId) {
-            loadModules(workspaceId);
-        } else {
-            setModules([]);
+        if (workspaces.length === 0) return;
+        const stillExists = workspaces.some((w: Workspace) => w._id === workspaceId);
+        if (!workspaceId || !stillExists) {
+            dispatch(setActiveWorkspaceId(workspaces[0]._id));
         }
-    }, [workspaceId, pathname]);
-
-    async function loadWorkspaces() {
-        try {
-            setLoadingWorkspaces(true);
-
-            const response = await apiRequest("/api/workspaces", { method: "GET" });
-            const data = await response.json();
-
-            if (response.ok && data.workspaces) {
-                const list = data.workspaces
-                    .map((item: any) => item.workspace)
-                    .filter(Boolean)
-                    .map((ws: any) => ({
-                        _id: ws._id,
-                        name: ws.name,
-                        totalModules: ws.totalModules ?? 0,
-                    }));
-                setWorkspaces(list);
-
-                if (list.length > 0) {
-                    const exists = list.some((w: Workspace) => w._id === workspaceId);
-                    if (!workspaceId || !exists) {
-                        setWorkspaceId(list[0]._id);
-                    }
-                }
-            } else {
-                setWorkspaces([]);
-            }
-        } catch (err) {
-            console.log("Error loading workspaces:", err);
-            setWorkspaces([]);
-        } finally {
-            setLoadingWorkspaces(false);
-        }
-    }
-
-    async function loadModules(id: string) {
-        try {
-            setLoadingModules(true);
-
-            const response = await apiRequest(`/api/modules/${id}`, { method: "GET" });
-            const data = await response.json();
-
-            if (response.ok && data.modules) {
-                const list: Module[] = data.modules
-                    .map((m: any) => {
-                        if (!m) return null;
-                        const _id = m._id || m.id;
-                        const name = m.name || "Untitled Module";
-                        return _id ? { _id: String(_id), name: String(name) } : null;
-                    })
-                    .filter(Boolean);
-
-                setModules(list);
-            } else {
-                setModules([]);
-            }
-        } catch (err) {
-            console.log("Error loading modules:", err);
-            setModules([]);
-        } finally {
-            setLoadingModules(false);
-        }
-    }
+    }, [workspaces, workspaceId, dispatch]);
 
     const handleWorkspaceChange = (newId: string) => {
-        setWorkspaceId(newId);
+        dispatch(setActiveWorkspaceId(newId));
         if (newId) {
             router.push(`/workspace/${newId}`);
         }
@@ -151,277 +171,334 @@ export default function Sidebar() {
             return;
         }
         try {
-            setCreating(true);
             setCreateError("");
-            const response = await apiRequest("/api/workspaces", {
-                method: "POST",
-                body: JSON.stringify({ name: newWorkspaceName }),
-            });
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.message || "Failed to create workspace");
-            }
-            // Refresh workspace list
-            await loadWorkspaces();
+            // Invalidating Workspace:LIST refreshes this list and the dashboard at once.
+            await createWorkspaceMutation({ name: newWorkspaceName }).unwrap();
             setShowCreateModal(false);
             setNewWorkspaceName("");
-        } catch (err: any) {
-            setCreateError(err.message || "An error occurred");
-        } finally {
-            setCreating(false);
+        } catch {
+            setCreateError("Failed to create workspace");
         }
     }
 
+    const closeCreateModal = () => {
+        setShowCreateModal(false);
+        setCreateError("");
+        setNewWorkspaceName("");
+    };
+
+    const isAppsActive = pathname.startsWith("/Apps");
 
     return (
-        <aside className="w-82 h-screen bg-white flex flex-col flex-shrink-0 sticky top-0 ">
-            <div className="px-5 pt-5 pb-2">
-                <div
+        <aside className="w-82 h-screen bg-card border-r border-slate-200 flex flex-col flex-shrink-0 sticky top-0">
+            {/* ── Brand ─────────────────────────────────────────────── */}
+            <div className="px-5 pt-5 pb-4">
+                <button
+                    type="button"
                     onClick={() => router.push("/Home")}
-                    className="flex items-center gap-2 mb-4 cursor-pointer group"
+                    className="group flex w-full items-center gap-3 rounded-xl p-1 text-left transition hover:bg-gray-200/40 cursor-pointer"
                 >
-                    <div className="flex gap-4 items-center">
-                        <div className="bg-white shadow-sm border border-zinc-300 p-2 rounded-xl w-15 h-15 flex justify-center items-center">
-                            <Image src={logo} alt="Logo" priority />
-                        </div>
-                        <div>
-                            <p className="text-[#000000] text-lg font-bold font-google-sans flex items-center gap-1">
-                                Collaborate
-                                <span className="bg-gradient-to-r from-[#6C5CE7] via-[#00CEC9] to-[#FF7675] bg-clip-text text-transparent font-extrabold text-xl">
-                                    X
-                                </span>
-                            </p>
-                            <p className="text-xs font-google-sans">
-                                Modern CRM For Agile Teams
-                            </p>
-                        </div>
-                    </div>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-card shadow-sm transition group-hover:shadow-md">
+                        <Image src={logo} alt="Logo" priority className="h-8 w-8 object-contain" />
+                    </span>
 
-                </div>
-                <div className="flex items-center justify-between py-2">
-                    <Link href="/Apps"
-                        className="flex items-center gap-2 cursor-pointer"
-                    >
-                        <div className="p-1 bg-[#6C5CE7] rounded-md">
-                            <Blocks size={22} className="text-white" />
-                        </div>
-
-                        <span className="text-sm font-bold text-black font-google-sans text-zinc-800">
-                            Apps
+                    <span className="min-w-0">
+                        <span className="flex items-center gap-1 text-lg font-bold font-google-sans text-slate-900 leading-tight">
+                            Collaborate
+                            <span className="bg-gradient-to-r from-[#6C5CE7] via-[#00CEC9] to-accent bg-clip-text text-xl font-extrabold text-transparent">
+                                X
+                            </span>
                         </span>
-                    </Link>
-
-                </div>
-                <label className="flex items-center justify-between">
-                    <button
-                        onClick={() => setOpen(!open)}
-                        className="flex items-center gap-2 cursor-pointer"
-                    >
-                        <div className="p-1 bg-[#FF7675] rounded-md">
-                            <Building2 size={22} className="text-white" />
-                        </div>
-
-                        <span className="text-sm font-bold text-black font-google-sans text-zinc-800">
-                            WorkSpaces
+                        <span className="block truncate text-[11px] font-medium text-slate-400 font-google-sans">
+                            Modern CRM for agile teams
                         </span>
-
-                        <FaChevronDown
-                            className={`w-3 h-3 text-black transition-transform ${open ? "rotate-180" : ""
-                                }`}
-                        />
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={() => setShowCreateModal(true)}
-                        className="p-0.5 rounded-sm hover:bg-zinc-100 transition cursor-pointer"
-                    >
-                        <RiAddLine size={20} />
-                    </button>
-                </label>
-
-                {loadingWorkspaces ? (
-                    <div className="h-9 rounded bg-white/10 shimmer" />
-                ) : workspaces.length === 0 ? (
-                    <div className="text-sm text-slate-400 py-2 font-google-sans">
-                        No workspace
-                    </div>
-                ) : (
-                    open && (
-                        <div className=" ml-8">
-                            {workspaces.map((workspace) => (
-                                <button
-                                    key={workspace._id}
-                                    onClick={() => handleWorkspaceChange(workspace._id)}
-                                    className={`w-full flex items-center justify-between px-2 py-0.5 transition cursor-pointer ${workspace._id === workspaceId
-                                        ? "text-black font-bold font-google-sans"
-                                        : "text-gray-500 hover:text-black font-google-sans text-sm"
-                                        }`}
-                                >
-                                    <span className="truncate font-google-sans text-sm">
-                                        {workspace.name}
-                                    </span>
-
-                                    {/* Module count */}
-                                    <span className="text-xs">
-                                        {workspace.totalModules ?? 0}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    )
-                )}
+                    </span>
+                </button>
             </div>
 
-            <div className="px-3 pb-3 flex-1 overflow-y-auto">
-                <div className="flex items-center gap-1.5 px-2">
-                    <button className="flex gap-1 items-center cursor-pointer" onClick={() => setOpenModule(!openModule)}>
-                        <div className="bg-[#00B894] p-1 rounded-md">
-                            <TbCards className="text-white " size={22} />
+            {/* ── Navigation ────────────────────────────────────────── */}
+            <nav className="flex-1 overflow-y-auto px-3 pb-3 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
+                {/* Apps */}
+                <Link
+                    href="/Apps"
+                    className={`flex items-center gap-2.5 rounded-lg px-2 py-2 transition cursor-pointer ${isAppsActive ? "bg-[#6C5CE7]/10" : "hover:bg-gray-200/40"
+                        }`}
+                >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#6C5CE7] text-white">
+                        <HiOutlineSquares2X2 className="h-4 w-4" />
+                    </span>
+                    <span
+                        className={`text-sm font-bold font-google-sans ${isAppsActive ? "text-[#6C5CE7]" : "text-slate-800"
+                            }`}
+                    >
+                        Apps
+                    </span>
+                </Link>
+
+                {/* Workspaces */}
+                <div className="mt-1">
+                    <SectionHeader
+                        icon={<HiOutlineBuildingOffice2 className="h-4 w-4" />}
+                        tint="var(--accent)"
+                        label="Workspaces"
+                        count={workspaces.length}
+                        open={open}
+                        onToggle={() => setOpen(!open)}
+                        action={
+                            <button
+                                type="button"
+                                onClick={() => setShowCreateModal(true)}
+                                aria-label="Create workspace"
+                                title="Create workspace"
+                                className="rounded-lg p-1.5 text-slate-500 transition hover:bg-gray-300/50 hover:text-slate-800 cursor-pointer"
+                            >
+                                <RiAddLine className="h-4 w-4" />
+                            </button>
+                        }
+                    />
+
+                    {open && (
+                        <div className="mt-0.5 space-y-0.5 pl-3">
+                            {loadingWorkspaces ? (
+                                <RowSkeleton rows={3} />
+                            ) : workspaces.length === 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCreateModal(true)}
+                                    className="flex w-full items-center gap-2 rounded-lg border border-dashed border-slate-200 px-3 py-2.5 text-xs font-medium text-slate-400 transition hover:border-accent/40 hover:text-accent cursor-pointer font-google-sans"
+                                >
+                                    <RiAddLine className="h-4 w-4" />
+                                    Create your first workspace
+                                </button>
+                            ) : (
+                                workspaces.map((workspace: Workspace) => {
+                                    const active = workspace._id === workspaceId;
+                                    const accent = colorFor(workspace._id);
+
+                                    return (
+                                        <button
+                                            key={workspace._id}
+                                            onClick={() => handleWorkspaceChange(workspace._id)}
+                                            title={workspace.name}
+                                            className={`group relative flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-3 pr-2 transition cursor-pointer ${active ? "bg-accent/10" : "hover:bg-gray-200/40"
+                                                }`}
+                                        >
+                                            {active && (
+                                                <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-accent" />
+                                            )}
+
+                                            <span
+                                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold"
+                                                style={{
+                                                    backgroundColor: accent.bg,
+                                                    color: accent.accent
+                                                }}
+                                            >
+                                                {initialsOf(workspace.name)}
+                                            </span>
+
+                                            <span
+                                                className={`truncate text-sm font-google-sans ${active
+                                                    ? "font-bold text-slate-900"
+                                                    : "font-medium text-slate-500 group-hover:text-slate-800"
+                                                    }`}
+                                            >
+                                                {workspace.name}
+                                            </span>
+
+                                            <span
+                                                className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${active
+                                                    ? "bg-accent/15 text-accent"
+                                                    : "bg-slate-100 text-slate-400"
+                                                    }`}
+                                            >
+                                                {workspace.totalModules ?? 0}
+                                            </span>
+                                        </button>
+                                    );
+                                })
+                            )}
                         </div>
-                        <h3 className="text-sm text-[#0D1B2A] font-bold tracking-wider font-google-sans">
-                            Modules
-                        </h3>
-                        <FaChevronDown
-                            className={`w-3 h-3 text-black transition-transform ${openModule ? "rotate-180" : ""
-                                }`}
-                        />
-                    </button>
+                    )}
                 </div>
 
-                {showCreateModal && createPortal(
-                    <div
-                        className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4"
-                        onClick={() => {
-                            setShowCreateModal(false);
-                            setCreateError("");
-                            setNewWorkspaceName("");
-                        }}
-                    >
-                        <div
-                            className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl border border-slate-200"
-                            onClick={(e) => e.stopPropagation()}
-                        >
+                {/* Modules */}
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                    <SectionHeader
+                        icon={<TbCards className="h-4 w-4" />}
+                        tint="#00B894"
+                        label="Modules"
+                        count={modules.length}
+                        open={openModule}
+                        onToggle={() => setOpenModule(!openModule)}
+                    />
 
-                            {/* Header */}
-                            <div className="flex items-center justify-between mb-5 ">
-                                <div>
-                                    <h2 className="text-lg font-bold text-slate-900 font-google-sans leading-snug">
-                                        Create Workspace
-                                    </h2>
-                                    <p className="text-xs text-zinc-500 font-medium mt-0.5">
-                                        Set up a new space to organize modules and team projects.
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        setShowCreateModal(false);
-                                        setCreateError("");
-                                        setNewWorkspaceName("");
-                                    }}
-                                    className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-slate-100 transition cursor-pointer"
-                                    aria-label="Close"
-                                >
-                                    <HiOutlineXMark className="w-5 h-5" />
-                                </button>
-                            </div>
-
-                            {/* Error Banner */}
-                            {createError && (
-                                <div className="flex items-start gap-2.5 bg-red-50/80 border border-red-100 text-red-600 text-xs font-medium p-3 rounded-xl mb-4">
-                                    <HiOutlineExclamationTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
-                                    <span>{createError}</span>
-                                </div>
-                            )}
-
-                            {/* Input Field */}
-                            <div className="mb-6">
-                                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Workspace Name
-                                </label>
-                                <input
-                                    type="text"
-                                    value={newWorkspaceName}
-                                    onChange={(e) => setNewWorkspaceName(e.target.value)}
-                                    placeholder="e.g. Sales & Marketing"
-                                    autoFocus
-                                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-zinc-400 outline-none focus:bg-white focus:border-[#6C5CE7] focus:ring-4 focus:ring-[#6C5CE7]/10 transition font-medium"
-                                />
-                            </div>
-
-                            {/* Action Buttons */}
-                            <div className="flex items-center justify-end gap-2.5">
-                                <button
-                                    onClick={() => {
-                                        setShowCreateModal(false);
-                                        setCreateError("");
-                                        setNewWorkspaceName("");
-                                    }}
-                                    className="px-4 py-2 text-sm font-semibold text-zinc-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/70 rounded-xl transition cursor-pointer"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleCreateWorkspace}
-                                    disabled={creating || !newWorkspaceName.trim()}
-                                    className="px-4 py-2 text-sm font-semibold bg-[#6C5CE7] hover:bg-[#5b4cc4] text-white rounded-xl shadow-sm shadow-[#6C5CE7]/20 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
-                                >
-                                    {creating ? "Creating..." : "Create Workspace"}
-                                </button>
-                            </div>
-
-                        </div>
-                    </div>,
-                    document.body
-                )}
-
-                {openModule && (
-                    <>
-                        {loadingModules ? (
-                            <div className="space-y-1.5">
-                                {[...Array(3)].map((_, i) => (
-                                    <div
-                                        key={i}
-                                        className="relative h-8 overflow-hidden rounded bg-white/10 shimmer"
-                                    />
-                                ))}
-                            </div>
-                        ) : modules.length === 0 ? (
-                            <div className="text-sm text-slate-400 py-2 ml-12 font-dmsans">No Module available</div>
-                        ) : (
-                            <div className="space-y-0.5 ml-5">
-                                {modules.map((moduleItem) => {
+                    {openModule && (
+                        <div className="mt-0.5 space-y-0.5 pl-3">
+                            {loadingModules ? (
+                                <RowSkeleton rows={4} />
+                            ) : modules.length === 0 ? (
+                                <p className="px-3 py-2.5 text-xs font-medium text-slate-400 font-google-sans">
+                                    No modules in this workspace yet
+                                </p>
+                            ) : (
+                                modules.map((moduleItem) => {
                                     const active = pathname.includes(`/module/${moduleItem._id}`);
 
                                     return (
                                         <button
                                             key={moduleItem._id}
                                             onClick={() =>
-                                                router.push(`/workspace/${workspaceId}/module/${moduleItem._id}`)
+                                                router.push(
+                                                    `/workspace/${workspaceId}/module/${moduleItem._id}`
+                                                )
                                             }
-                                            className={`flex items-center justify-between gap-2 w-full rounded px-3 py-2 text-sm transition-colors cursor-pointer ${active
-                                                ? "font-bold font-google-sans"
-                                                : "text-gray-500 hover:text-black font-google-sans text-sm"
+                                            title={moduleItem.name}
+                                            className={`group relative flex w-full items-center gap-2.5 rounded-lg py-2 pl-3 pr-2 transition cursor-pointer ${active ? "bg-[#00B894]/10" : "hover:bg-gray-200/40"
                                                 }`}
                                         >
+                                            {active && (
+                                                <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-[#00B894]" />
+                                            )}
 
-                                            <div className="flex items-center justify-center gap-1 pl-4 font-dmsans">
-                                                <span className="truncate">{moduleItem.name}</span>
+                                            <span
+                                                className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${active
+                                                    ? "bg-[#00B894]"
+                                                    : "bg-slate-300 group-hover:bg-slate-400"
+                                                    }`}
+                                            />
 
-                                            </div>
-                                            <span className="flex justify-center">
-                                                {active && <BsCheck className="w-4 h-4 " />}
+                                            <span
+                                                className={`truncate text-sm font-google-sans ${active
+                                                    ? "font-bold text-slate-900"
+                                                    : "font-medium text-slate-500 group-hover:text-slate-800"
+                                                    }`}
+                                            >
+                                                {moduleItem.name}
                                             </span>
+
+                                            {active && (
+                                                <BsCheck2 className="ml-auto h-4 w-4 shrink-0 text-[#00B894]" />
+                                            )}
                                         </button>
                                     );
-                                })}
-                            </div>
-                        )}
-                    </>
-                )}
+                                })
+                            )}
+                        </div>
+                    )}
+                </div>
+            </nav>
+
+            {/* ── User ──────────────────────────────────────────────── */}
+            <div className="border-t border-slate-200 p-3">
+                <div className="flex items-center gap-2.5 rounded-xl px-2 py-2 transition hover:bg-gray-200/40">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#6C5CE7] text-sm font-bold text-white">
+                        {initialsOf(user?.firstName || user?.email || "U")}
+                    </span>
+
+                    <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-slate-800 font-google-sans">
+                            {user?.firstName || "Signed in"}
+                        </span>
+                        <span className="block truncate text-[11px] font-medium text-slate-400">
+                            {user?.email || "—"}
+                        </span>
+                    </span>
+
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        aria-label="Log out"
+                        title="Log out"
+                        className="rounded-lg p-1.5 text-slate-400 transition hover:bg-accent/10 hover:text-accent cursor-pointer"
+                    >
+                        <HiOutlineArrowRightOnRectangle className="h-4.5 w-4.5" />
+                    </button>
+                </div>
             </div>
 
+            {/* ── Create workspace modal ────────────────────────────── */}
+            {showCreateModal && createPortal(
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+                    onClick={closeCreateModal}
+                >
+                    <div
+                        className="w-full max-w-md rounded-2xl border border-slate-200 bg-card p-6 shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="mb-5 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10 text-accent">
+                                    <HiOutlineBuildingOffice2 className="h-5 w-5" />
+                                </span>
+                                <div>
+                                    <h2 className="text-lg font-bold leading-snug text-slate-900 font-google-sans">
+                                        Create Workspace
+                                    </h2>
+                                    <p className="mt-0.5 text-xs font-medium text-zinc-500">
+                                        Set up a new space to organize modules and team projects.
+                                    </p>
+                                </div>
+                            </div>
 
+                            <button
+                                onClick={closeCreateModal}
+                                className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-slate-100 hover:text-zinc-600 cursor-pointer"
+                                aria-label="Close"
+                            >
+                                <HiOutlineXMark className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        {/* Error Banner */}
+                        {createError && (
+                            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50/80 p-3 text-xs font-medium text-red-600">
+                                <HiOutlineExclamationTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                                <span>{createError}</span>
+                            </div>
+                        )}
+
+                        {/* Input Field */}
+                        <div className="mb-6">
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                                Workspace Name
+                            </label>
+                            <input
+                                type="text"
+                                value={newWorkspaceName}
+                                onChange={(e) => setNewWorkspaceName(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleCreateWorkspace();
+                                    if (e.key === "Escape") closeCreateModal();
+                                }}
+                                placeholder="e.g. Sales & Marketing"
+                                autoFocus
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-sm font-medium text-slate-800 outline-none transition placeholder:text-zinc-400 focus:border-[#6C5CE7] focus:bg-card focus:ring-4 focus:ring-[#6C5CE7]/10"
+                            />
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center justify-end gap-2.5">
+                            <button
+                                onClick={closeCreateModal}
+                                className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-zinc-600 transition hover:bg-slate-200/70 hover:text-slate-900 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleCreateWorkspace}
+                                disabled={creating || !newWorkspaceName.trim()}
+                                className="rounded-xl bg-[#6C5CE7] px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-[#6C5CE7]/20 transition hover:bg-[#5b4cc4] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                            >
+                                {creating ? "Creating..." : "Create Workspace"}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
         </aside>
     );
 }

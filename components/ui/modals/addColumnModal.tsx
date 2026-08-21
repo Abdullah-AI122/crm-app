@@ -70,7 +70,7 @@ function ColumnTypeSelect({
             </button>
 
             {open && (
-                <div className="absolute z-30 top-full left-0 right-0 mt-1.5 border border-slate-200 rounded-xl shadow-lg py-1.5 max-h-64 overflow-y-auto bg-white">
+                <div className="absolute z-30 top-full left-0 right-0 mt-1.5 border border-slate-200 rounded-xl shadow-lg py-1.5 max-h-64 overflow-y-auto bg-card">
                     {COLUMN_TYPE_OPTIONS.map((opt) => {
                         const Icon = opt.icon;
                         const isSelected = opt.value === value;
@@ -133,7 +133,7 @@ export default function AddColumnModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5 backdrop-blur-[2px]">
-            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-card p-6 shadow-2xl">
                 <div className="mb-6 flex items-start justify-between">
                     <div>
                         <h2 className="font-dmsans text-lg font-semibold text-slate-900">
@@ -182,7 +182,7 @@ export default function AddColumnModal({
                             }
                         }}
                         placeholder="e.g. Status, Priority, Owner"
-                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 font-dmsans text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#FB923C] focus:ring-2 focus:ring-[#FB923C]/10"
+                        className="w-full rounded-xl border border-slate-300 bg-card px-4 py-2.5 font-dmsans text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#FB923C] focus:ring-2 focus:ring-[#FB923C]/10"
                     />
                 </div>
 
@@ -236,7 +236,7 @@ export default function AddColumnModal({
                         type="button"
                         onClick={() => setOpen(false)}
                         disabled={creatingColumn}
-                        className="flex-1 cursor-pointer rounded-xl border border-slate-300 bg-white py-2.5 font-dmsans text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex-1 cursor-pointer rounded-xl border border-slate-300 bg-card py-2.5 font-dmsans text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         Cancel
                     </button>

@@ -33,10 +33,16 @@ interface Module {
     description?: string;
     visibility?: string;
     icon?: React.ReactNode;
-    performance?: number;
     createdAt?: string;
     createdBy?: ModuleUser;
+
+    // Served by GET /modules/:workspaceId — computed in one aggregation for the
+    // whole workspace, so these cost no extra request per card.
+    totalRecords?: number;
+    completedRecords?: number;
+    performance?: number;
     graphData?: {
+        day: string;
         value: number;
     }[];
 }
@@ -61,27 +67,12 @@ export default function ModuleCard({
     const [copied, setCopied] = useState(false);
 
     const performance = module.performance ?? 0;
+    const totalRecords = module.totalRecords ?? 0;
+    const completedRecords = module.completedRecords ?? 0;
+    const graphData = module.graphData ?? [];
 
-    const graphData = module.graphData?.length
-        ? module.graphData
-        : [
-            { value: 72 },
-            { value: 70 },
-            { value: 63 },
-            { value: 64 },
-            { value: 69 },
-            { value: 61 },
-            { value: 60 },
-            { value: 56 },
-            { value: 59 },
-            { value: 67 },
-            { value: 63 },
-            { value: 55 },
-            { value: 49 },
-            { value: 47 },
-            { value: 43 },
-            { value: 38 },
-        ];
+    // An empty module has nothing to plot — a flat line would read as real data.
+    const hasData = totalRecords > 0;
 
     const openModule = () => {
         router.push(
@@ -171,7 +162,7 @@ export default function ModuleCard({
     return (
         <div
             onClick={openModule}
-            className="group w-full max-w-[360px] rounded-[22px] border border-slate-200 bg-white shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
+            className="group w-full max-w-[360px] rounded-[22px] border border-slate-200 bg-card shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
         >
             <div className="p-4 sm:p-5">
 
@@ -229,7 +220,7 @@ export default function ModuleCard({
                                 e.stopPropagation();
                                 setShowMenu((value) => !value);
                             }}
-                            className="w-9 h-9 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-50 transition cursor-pointer"
+                            className="w-9 h-9 rounded-full border border-slate-200 bg-card flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-50 transition cursor-pointer"
                             aria-label="Module options"
                         >
                             <HiOutlineEllipsisVertical className="w-4 h-4" />
@@ -241,7 +232,7 @@ export default function ModuleCard({
                                 onClick={(e) =>
                                     e.stopPropagation()
                                 }
-                                className="absolute right-0 top-11 z-50 w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
+                                className="absolute right-0 top-11 z-50 w-48 rounded-xl border border-slate-200 bg-card p-1.5 shadow-xl"
                             >
                                 <button
                                     onClick={openModule}
@@ -306,7 +297,7 @@ export default function ModuleCard({
 
                         <div>
                             <p className="text-[11px] text-slate-400">
-                                Performance
+                                Completion
                             </p>
 
                             <div className="flex items-baseline gap-1">
@@ -318,6 +309,12 @@ export default function ModuleCard({
                                     %
                                 </span>
                             </div>
+
+                            <p className="text-[10px] text-slate-400 -mt-0.5">
+                                {hasData
+                                    ? `${completedRecords} of ${totalRecords} records done`
+                                    : "No records yet"}
+                            </p>
                         </div>
 
                         <button
@@ -325,14 +322,21 @@ export default function ModuleCard({
                                 e.stopPropagation();
                                 openModule();
                             }}
-                            className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:bg-orange-50 transition cursor-pointer"
+                            className="w-8 h-8 rounded-full bg-card border border-slate-200 flex items-center justify-center hover:bg-orange-50 transition cursor-pointer"
                         >
                             <ChevronRight className="w-4 h-4 text-slate-700" />
                         </button>
                     </div>
 
-                    {/* Curved graph */}
+                    {/* Curved graph — records created per day, last 16 days */}
                     <div className="w-full h-[115px] mt-1 px-2">
+                        {!hasData ? (
+                            <div className="flex h-full w-full items-center justify-center">
+                                <p className="text-[11px] text-slate-400">
+                                    Add records to see activity
+                                </p>
+                            </div>
+                        ) : (
                         <ResponsiveContainer
                             width="100%"
                             height="100%"
@@ -370,7 +374,30 @@ export default function ModuleCard({
 
                                 <Tooltip
                                     cursor={false}
-                                    content={() => null}
+                                    contentStyle={{
+                                        fontSize: 11,
+                                        borderRadius: 8,
+                                        border: "1px solid var(--hairline)",
+                                        background: "var(--card)",
+                                        color: "var(--foreground)",
+                                        padding: "4px 8px",
+                                    }}
+                                    labelFormatter={(_label, payload) => {
+                                        const day = payload?.[0]?.payload?.day;
+                                        return day
+                                            ? new Date(day).toLocaleDateString("en-US", {
+                                                month: "short",
+                                                day: "numeric",
+                                            })
+                                            : "";
+                                    }}
+                                    formatter={(value) => {
+                                        const count = Number(value ?? 0);
+                                        return [
+                                            `${count} record${count === 1 ? "" : "s"}`,
+                                            "Created",
+                                        ];
+                                    }}
                                 />
 
                                 <Area
@@ -389,6 +416,7 @@ export default function ModuleCard({
                                 />
                             </AreaChart>
                         </ResponsiveContainer>
+                        )}
                     </div>
 
                     {/* Graph scale */}

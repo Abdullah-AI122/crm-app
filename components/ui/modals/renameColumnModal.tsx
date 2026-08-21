@@ -56,7 +56,7 @@ export default function RenameColumnModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5 backdrop-blur-[2px]">
-            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-card p-6 shadow-2xl">
                 <div className="mb-6 flex items-start justify-between">
                     <div>
                         <h2 className="font-dmsans text-lg font-semibold text-slate-900">
@@ -94,7 +94,7 @@ export default function RenameColumnModal({
                         <button
                             type="button"
                             onClick={copyId}
-                            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-dmsans text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-card px-2.5 py-1.5 font-dmsans text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
                         >
                             {copied ? (
                                 <>
@@ -135,7 +135,7 @@ export default function RenameColumnModal({
                             }
                         }}
                         placeholder="Enter column name"
-                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 font-dmsans text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#FB923C] focus:ring-2 focus:ring-[#FB923C]/10"
+                        className="w-full rounded-xl border border-slate-300 bg-card px-4 py-2.5 font-dmsans text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#FB923C] focus:ring-2 focus:ring-[#FB923C]/10"
                     />
                 </div>
 
@@ -152,7 +152,7 @@ export default function RenameColumnModal({
                     <button
                         type="button"
                         onClick={() => setRenameModal(null)}
-                        className="flex-1 cursor-pointer rounded-xl border border-slate-300 bg-white py-2.5 font-dmsans text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                        className="flex-1 cursor-pointer rounded-xl border border-slate-300 bg-card py-2.5 font-dmsans text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                     >
                         Cancel
                     </button>

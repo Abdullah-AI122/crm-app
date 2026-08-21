@@ -117,7 +117,7 @@ export const COLUMN_TYPE_OPTIONS = [
   { value: "status", label: "Status", icon: HiOutlineFlag },
   { value: "date", label: "Date", icon: HiOutlineCalendarDays },
   { value: "timeline", label: "Timeline", icon: HiOutlineCalendarDays },
-  { value: "person", label: "Person", icon: HiOutlineUser },
+  { value: "person", label: "People", icon: HiOutlineUser },
   { value: "email", label: "Email", icon: HiOutlineEnvelope },
   { value: "phone", label: "Phone", icon: HiOutlinePhone },
   { value: "checkbox", label: "Checkbox", icon: HiOutlineCheckCircle },

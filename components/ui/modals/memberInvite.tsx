@@ -73,7 +73,7 @@ export default function MemberInvite({
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center px-5 z-50">
-            <div className="rounded-2xl px-6 py-5 w-full max-w-md shadow-2xl bg-white border border-slate-200">
+            <div className="rounded-2xl px-6 py-5 w-full max-w-md shadow-2xl bg-card border border-slate-200">
                 <div className="flex items-center justify-between mb-6">
                     <div>
                         <h2 className="text-lg font-semibold font-google-sans text-slate-900">
@@ -141,7 +141,7 @@ export default function MemberInvite({
                         </button>
 
                         {dropdownOpen && (
-                            <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-1.5">
+                            <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-card border border-slate-200 rounded-xl shadow-xl p-1.5">
                                 {roles.map((item) => (
                                     <button
                                         key={item.value}
@@ -191,7 +191,7 @@ export default function MemberInvite({
 
                     <button
                         onClick={() => setOpen(false)}
-                        className="flex-1 bg-white border border-slate-300 text-slate-700 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition cursor-pointer font-dmsans"
+                        className="flex-1 bg-card border border-slate-300 text-slate-700 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition cursor-pointer font-dmsans"
                     >
                         Cancel
                     </button>

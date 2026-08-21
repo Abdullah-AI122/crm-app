@@ -3,7 +3,9 @@
 export interface AuthUser {
   id: string;
   firstName: string;
+  lastName?: string;
   email: string;
+  avatar?: string;
 }
 
 const TOKEN_KEY = "crm_auth_token";
@@ -57,4 +59,22 @@ export function logout(): void {
 
 export function isAuthenticated(): boolean {
   return !!getToken();
+}
+
+/**
+ * Merges fields into the cached user without a round-trip — used after an avatar
+ * upload so every mounted avatar picks the new URL up.
+ */
+export function updateUser(patch: Partial<AuthUser>): AuthUser | null {
+  const current = getUser();
+  if (!current) return null;
+
+  const next = { ...current, ...patch };
+  saveUser(next);
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("crm:user-updated", { detail: next }));
+  }
+
+  return next;
 }

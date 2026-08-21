@@ -30,7 +30,7 @@ export default function ColumnMenu({
 }: ColumnMenuProps) {
     return (
         <div
-            className="fixed z-50 min-w-[200px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+            className="fixed z-50 min-w-[200px] overflow-hidden rounded-xl border border-slate-200 bg-card shadow-xl"
             style={{ top: y, left: x }}
             onClick={(e) => e.stopPropagation()}
         >

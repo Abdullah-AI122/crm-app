@@ -8,6 +8,7 @@ import Image from "next/image";
 import { Eye, EyeOff, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import GoogleButton from "@/components/ui/buttons/googleauth";
+import env from "@/config/env";
 
 const slides = [
     { heading: "Collaborate in real time", desc: "Work together with your team without missing a beat." },
@@ -63,16 +64,16 @@ export default function LoginPage() {
         }
     };
 
-    const handleOAuth = (provider: "google" | "apple") => {
-        window.location.href = `http://localhost:4040/api/auth/${provider}`;
+    const handleOAuth = (provider: "apple") => {
+        window.location.href = `${env.NEXT_PUBLIC_API_URL}/auth/${provider}`;
     };
 
     return (
-        <section className="w-full h-full bg-[#D9D9D9] p-3">
+        <section className="w-full h-full bg-canvas p-3">
             <div className="flex gap-3 w-full h-full">
-                <div className="hidden lg:flex lg:w-[45%] relative flex-col items-center justify-center border bg-[#FF7675] rounded-2xl">
+                <div className="hidden lg:flex lg:w-[45%] relative flex-col items-center justify-center border bg-accent rounded-2xl">
                     <Link href="/" className="cursor-pointer">
-                        <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white shadow-sm">
+                        <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-card shadow-sm">
                             <Image src={logo} alt="Logo" priority />
                         </div>
                     </Link>
@@ -84,15 +85,15 @@ export default function LoginPage() {
 
                     <div className="absolute bottom-10 flex gap-2">
                         {slides.map((_, i) => (
-                            <span key={i} onClick={() => setSlide(i)} className={`h-1.5 w-1.5 rounded-full cursor-pointer ${i === slide ? "bg-white" : "bg-black"}`} />
+                            <span key={i} onClick={() => setSlide(i)} className={`h-1.5 w-1.5 rounded-full cursor-pointer ${i === slide ? "bg-card" : "bg-black"}`} />
                         ))}
                     </div>
                 </div>
 
-                <div className="w-full lg:w-[55%] flex flex-col px-6 sm:px-16 py-8 rounded-xl bg-white flex-1">
+                <div className="w-full lg:w-[55%] flex flex-col px-6 sm:px-16 py-8 rounded-xl bg-card flex-1">
                     <div className="flex items-center justify-between">
                         <Link href="/" className="cursor-pointer">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white shadow-sm border border-zinc-300">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-card shadow-sm border border-zinc-300">
                                 <Image src={logo} alt="Logo" priority />
                             </div>
                         </Link>
@@ -114,16 +115,16 @@ export default function LoginPage() {
                             </div>
 
                             {error && (
-                                <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-[#FF7675]/30 bg-[#FF7675]/10 px-4 py-3 text-sm text-[#FF7675] text-center">
+                                <div className="mb-5 flex items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent text-center">
                                     <AlertCircle className="h-4 w-4 shrink-0" />
                                     {error}
                                 </div>
                             )}
 
                             <div className="space-y-3">
-                                <GoogleButton onClick={() => handleOAuth("google")} />
+                                <GoogleButton mode="login" disabled={loading} onError={setError} />
 
-                                <button type="button" onClick={() => handleOAuth("apple")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-white py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60 cursor-pointer">
+                                <button type="button" onClick={() => handleOAuth("apple")} disabled={loading} className="w-full flex items-center justify-center gap-2 rounded-lg border border-zinc-400 bg-card py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60 cursor-pointer">
                                     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="black">
                                         <path d="M16.365 1.43c0 1.14-.417 2.06-1.25 2.87-.833.79-1.833 1.25-2.998 1.16-.146-1.11.375-2.27 1.19-3.06.813-.79 2.146-1.36 3.058-1.29zm3.395 15.65c-.5 1.15-1.083 2.28-1.916 3.36-.917 1.17-1.833 2.34-3.25 2.36-1.375.03-1.833-.79-3.417-.79-1.583 0-2.083.77-3.416.82-1.375.05-2.416-1.24-3.333-2.4-1.833-2.36-3.25-6.68-1.333-9.6 0.917-1.44 2.583-2.36 4.416-2.39 1.334-.02 2.584.87 3.417.87.833 0 2.333-1.07 3.917-.91 0.666.03 2.55.26 3.75 1.99-.1.07-2.25 1.28-2.22 3.86.03 3.1 2.75 4.13 2.78 4.15z" />
                                     </svg>
@@ -140,20 +141,20 @@ export default function LoginPage() {
                             <form onSubmit={handleSubmit} className="space-y-4">
                                 <div>
                                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">Email</label>
-                                    <input name="email" type="email" placeholder="John@gmail.com" value={formData.email} onChange={handleChange} required disabled={loading} className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black focus:ring-none disabled:opacity-60" />
+                                    <input name="email" type="email" placeholder="John@gmail.com" value={formData.email} onChange={handleChange} required disabled={loading} className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 text-sm text-foreground placeholder:text-zinc-400 outline-none focus:border-black focus:ring-none disabled:opacity-60" />
                                 </div>
 
                                 <div>
                                     <label className="mb-1.5 block text-sm font-semibold text-slate-800">Password</label>
                                     <div className="relative">
-                                        <input name="password" type={showPassword ? "text" : "password"} placeholder="Enter your password" value={formData.password} onChange={handleChange} required minLength={8} disabled={loading} className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 pr-10 text-sm text-black placeholder:text-zinc-400 outline-none focus:border-black focus:ring-none disabled:opacity-60" />
-                                        <button type="button" disabled={loading} onClick={() => setShowPassword(!showPassword)} className="absolute cursor-pointer right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-black disabled:opacity-50">
+                                        <input name="password" type={showPassword ? "text" : "password"} placeholder="Enter your password" value={formData.password} onChange={handleChange} required minLength={8} disabled={loading} className="w-full rounded-lg border border-zinc-400 px-3 py-2.5 pr-10 text-sm text-foreground placeholder:text-zinc-400 outline-none focus:border-black focus:ring-none disabled:opacity-60" />
+                                        <button type="button" disabled={loading} onClick={() => setShowPassword(!showPassword)} className="absolute cursor-pointer right-3 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-foreground disabled:opacity-50">
                                             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                         </button>
                                     </div>
                                 </div>
 
-                                <button type="submit" disabled={loading} className="w-full mt-2 flex items-center justify-center gap-2 rounded-lg bg-[#FF7675] py-3 text-sm font-semibold  transition hover:bg-[#FF7675] disabled:bg-slate-400 disabled:cursor-not-allowed cursor-pointer font-google-sans">
+                                <button type="submit" disabled={loading} className="w-full mt-2 flex items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-semibold  transition hover:bg-accent disabled:bg-slate-400 disabled:cursor-not-allowed cursor-pointer font-google-sans">
                                     {loading ? (
                                         <Loader2 className="h-5 w-5 animate-spin" />
                                     ) : (
@@ -163,7 +164,7 @@ export default function LoginPage() {
                             </form>
 
                             <Link href="/forget" className="mt-2 text-center text-sm font-google-sans flex justify-center">
-                                <span className="cursor-pointer text-black text-md font-semibold  hover:text-[#ff7675]">Forget Password?</span>
+                                <span className="cursor-pointer text-foreground text-md font-semibold  hover:text-[#ff7675]">Forget Password?</span>
                             </Link>
                         </div>
                     </div>

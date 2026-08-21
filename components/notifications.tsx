@@ -45,7 +45,7 @@ export default function NotificationDropdown({
         <div className="relative" ref={dropdownRef}>
             <button
                 onClick={() => setOpen(!open)}
-                className="relative bg-white w-9.5 h-9.5 flex items-center justify-center rounded-xl cursor-pointer hover:bg-gray-100 transition"
+                className="relative bg-card w-9.5 h-9.5 flex items-center justify-center rounded-xl cursor-pointer hover:bg-gray-100 transition"
             >
                 {/* Bell icon */}
                 <svg
@@ -80,7 +80,7 @@ export default function NotificationDropdown({
             </button>
 
             {open && (
-                <div className="absolute right-0 mt-1 w-80 bg-white rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.10)] border border-gray-200 overflow-hidden z-10">
+                <div className="absolute right-0 mt-1 w-80 bg-card rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.10)] border border-gray-200 overflow-hidden z-10">
 
                     <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                         <h2 className="font-semibold text-sm text-gray-800 font-google-sans">
