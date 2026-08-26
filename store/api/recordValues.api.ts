@@ -1,4 +1,4 @@
-import { baseApi } from "../baseApi";
+import { ACTIVITY_TAG, baseApi } from "../baseApi";
 import type { RecordValue } from "../types";
 
 export const recordValuesApi = baseApi.injectEndpoints({
@@ -37,7 +37,10 @@ export const recordValuesApi = baseApi.injectEndpoints({
                 }
             }),
             invalidatesTags: (_result, _error, { recordId }) => [
-                { type: "RecordValue", id: `LIST-${recordId}` }
+                // Reference columns are derived from cells like this one.
+                { type: "RecordValue" as const, id: "LIST" },
+                { type: "RecordValue", id: `LIST-${recordId}` },
+                ACTIVITY_TAG
             ]
         }),
 
@@ -70,7 +73,25 @@ export const recordValuesApi = baseApi.injectEndpoints({
                 } catch {
                     patchResult.undo();
                 }
-            }
+            },
+
+            /**
+             * The optimistic patch above fixes THIS cell, and for a plain text
+             * or number cell that is the whole story — which is why this
+             * mutation had no tags at all.
+             *
+             * A mirror is different: its value is derived from this cell by the
+             * server, so patching one row locally leaves every row that mirrors
+             * it stale until a manual reload. The bare LIST tag is provided only
+             * by getModuleReferences, so this re-resolves the whole board's
+             * mirrors in ONE request and touches nothing else — the per-record
+             * cell lists keep their own `LIST-<recordId>` tags and are left
+             * alone, so the hot path stays as cheap as it was.
+             */
+            invalidatesTags: [
+                { type: "RecordValue" as const, id: "LIST" },
+                ACTIVITY_TAG
+            ]
         }),
 
         deleteRecordValue: build.mutation<
@@ -82,7 +103,10 @@ export const recordValuesApi = baseApi.injectEndpoints({
                 method: "DELETE"
             }),
             invalidatesTags: (_result, _error, { recordId }) => [
-                { type: "RecordValue", id: `LIST-${recordId}` }
+                // Reference columns are derived from cells like this one.
+                { type: "RecordValue" as const, id: "LIST" },
+                { type: "RecordValue", id: `LIST-${recordId}` },
+                ACTIVITY_TAG
             ]
         })
     })

@@ -3,7 +3,7 @@ import {
   HiOutlineDocumentText, HiOutlineHashtag, HiOutlineFlag, HiOutlineCalendarDays,
   HiOutlineUser, HiOutlineEnvelope, HiOutlinePhone, HiOutlineCheckCircle,
   HiOutlineChevronUpDown, HiOutlineLink, HiOutlinePaperClip, HiOutlineStar,
-  HiOutlineBell,
+  HiOutlineBell, HiOutlineUsers, HiOutlineArrowsRightLeft,
 } from "react-icons/hi2";
 import { RiUserSharedLine } from "react-icons/ri";
 import { VscDeveloperTools } from "react-icons/vsc";
@@ -125,6 +125,9 @@ export const COLUMN_TYPE_OPTIONS = [
   { value: "link", label: "Link", icon: HiOutlineLink },
   { value: "file", label: "File", icon: HiOutlinePaperClip },
   { value: "rating", label: "Rating", icon: HiOutlineStar },
+  // Mirrors a column from another module: pick the module, pick the column,
+  // then pick a value from the list and it shows against the record.
+  { value: "relation", label: "Relation", icon: HiOutlineArrowsRightLeft },
 ];
 
 export const PALETTE = [
@@ -202,12 +205,18 @@ export const profileLinks = [
   },
   {
     id: 2,
+    name: "Members",
+    url: "/members",
+    icon: <HiOutlineUsers />
+  },
+  {
+    id: 3,
     name: "Developer",
     url: "/developer",
     icon: <VscDeveloperTools />
   },
   {
-    id: 3,
+    id: 4,
     name: "Notification",
     url: "/notification",
     icon: <HiOutlineBell />

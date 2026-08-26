@@ -1,11 +1,15 @@
 // lib/auth.ts
 
+import type { UserStatus } from "./presence";
+
 export interface AuthUser {
   id: string;
   firstName: string;
   lastName?: string;
   email: string;
   avatar?: string;
+  /** The presence the user picked — kept here so the dot paints before any fetch. */
+  status?: UserStatus;
 }
 
 const TOKEN_KEY = "crm_auth_token";

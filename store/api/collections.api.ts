@@ -1,4 +1,4 @@
-import { baseApi } from "../baseApi";
+import { ACTIVITY_TAG, baseApi } from "../baseApi";
 import type { Collection } from "../types";
 
 export const collectionsApi = baseApi.injectEndpoints({
@@ -23,7 +23,8 @@ export const collectionsApi = baseApi.injectEndpoints({
                 body
             }),
             invalidatesTags: (_result, _error, { moduleId }) => [
-                { type: "Collection", id: `LIST-${moduleId}` }
+                { type: "Collection", id: `LIST-${moduleId}` },
+                ACTIVITY_TAG
             ]
         }),
 
@@ -73,7 +74,8 @@ export const collectionsApi = baseApi.injectEndpoints({
             invalidatesTags: (_result, _error, { collectionId, moduleId }) => [
                 { type: "Collection", id: collectionId },
                 { type: "Collection", id: `LIST-${moduleId}` },
-                { type: "Record", id: `LIST-${collectionId}` }
+                { type: "Record", id: `LIST-${collectionId}` },
+                ACTIVITY_TAG
             ]
         })
     })

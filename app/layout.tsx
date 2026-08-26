@@ -4,6 +4,7 @@ import "./globals.css";
 import Providers from "./providers/auth.provider";
 import ThemeProviderWrapper from "./providers/theme.provider";
 import StoreProvider from "./providers/store.provider";
+import Toaster from "@/components/ui/toast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -55,6 +56,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <div className="flex min-h-screen w-full">
                 <main className="flex-1 min-w-0 overflow-auto"> {children} </main>
               </div>
+
+              {/* One mount for the whole app; toasts are raised by window event. */}
+              <Toaster />
             </ThemeProviderWrapper>
           </Providers>
         </StoreProvider>

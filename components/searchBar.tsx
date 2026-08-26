@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
+
+import { useSearchHotkey } from "@/lib/useSearchHotkey";
 import { IoIosSearch } from "react-icons/io";
 
 interface SearchBarProps {
@@ -16,18 +18,8 @@ export default function SearchBar({
 }: SearchBarProps) {
     const inputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            // Ctrl+K or Meta+K (Windows key + K won't work, but Ctrl+K will)
-            if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-                e.preventDefault();
-                inputRef.current?.focus();
-            }
-        };
-
-        document.addEventListener("keydown", handleKeyDown);
-        return () => document.removeEventListener("keydown", handleKeyDown);
-    }, []);
+    // Shared, so every search box in the app answers the same key.
+    useSearchHotkey(inputRef);
 
     return (
         <div className="flex w-full max-w-xl items-center">

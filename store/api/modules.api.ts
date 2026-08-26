@@ -1,5 +1,5 @@
-import { baseApi } from "../baseApi";
-import type { Module } from "../types";
+import { ACTIVITY_TAG, baseApi } from "../baseApi";
+import type { ModuleTag, Module } from "../types";
 
 export const modulesApi = baseApi.injectEndpoints({
     endpoints: (build) => ({
@@ -16,9 +16,44 @@ export const modulesApi = baseApi.injectEndpoints({
             ]
         }),
 
+        /**
+         * Board settings. `visibility` is the access lever — the server refuses
+         * it for anyone who is not an owner or admin, and the client shows that
+         * message verbatim.
+         */
+        updateModule: build.mutation<
+            Module,
+            {
+                moduleId: string;
+                workspaceId: string;
+                name?: string;
+                description?: string;
+                icon?: string;
+                color?: string;
+                /** Replaces the whole set — send [] to clear. */
+                tags?: ModuleTag[];
+                visibility?: "private" | "workspace" | "public";
+            }
+        >({
+            query: ({ moduleId, workspaceId: _workspaceId, ...body }) => ({
+                url: `/modules/${moduleId}`,
+                method: "PUT",
+                body
+            }),
+            transformResponse: (response: { module: Module }) => response.module,
+            invalidatesTags: (_result, _error, { workspaceId, moduleId }) => [
+                { type: "Module", id: `LIST-${workspaceId}` },
+                { type: "Module", id: moduleId },
+                // Making a board private changes who may open it, so every
+                // board-access panel for this workspace is now stale.
+                { type: "ModuleAccess", id: "LIST" },
+                ACTIVITY_TAG
+            ]
+        }),
+
         createModule: build.mutation<
             Module,
-            { workspaceId: string; name: string; description?: string }
+            { workspaceId: string; name: string; description?: string; tags?: ModuleTag[] }
         >({
             query: ({ workspaceId, ...body }) => ({
                 url: `/modules/${workspaceId}`,
@@ -30,7 +65,8 @@ export const modulesApi = baseApi.injectEndpoints({
                 { type: "Module", id: `LIST-${workspaceId}` },
                 // totalModules on the workspace row changes too
                 { type: "Workspace", id: workspaceId },
-                { type: "Workspace", id: "LIST" }
+                { type: "Workspace", id: "LIST" },
+                ACTIVITY_TAG
             ]
         }),
 
@@ -43,7 +79,8 @@ export const modulesApi = baseApi.injectEndpoints({
                 { type: "Module", id: moduleId },
                 { type: "Module", id: `LIST-${workspaceId}` },
                 { type: "Workspace", id: workspaceId },
-                { type: "Workspace", id: "LIST" }
+                { type: "Workspace", id: "LIST" },
+                ACTIVITY_TAG
             ]
         })
     })
@@ -51,6 +88,7 @@ export const modulesApi = baseApi.injectEndpoints({
 
 export const {
     useGetModulesQuery,
+    useUpdateModuleMutation,
     useCreateModuleMutation,
     useDeleteModuleMutation
 } = modulesApi;

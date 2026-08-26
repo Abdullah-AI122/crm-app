@@ -5,25 +5,56 @@ import { useRouter } from "next/navigation";
 import { HiOutlineEllipsisVertical } from "react-icons/hi2";
 import { motion } from "framer-motion";
 import WorkspaceMenu from "./ui/modals/workspaceMenu";
+import RenameWorkspace from "./ui/modals/renameWorkspace";
+import DeleteWorkspace from "./ui/modals/deleteWorkspace";
 import CollectionLoader from "./CollectionLoader";
-import { useGetWorkspacesQuery } from "@/store/api/workspaces.api";
+import { toast } from "./ui/toast";
+import {
+    useGetWorkspacesQuery,
+    useUpdateWorkspaceMutation,
+    useDeleteWorkspaceMutation
+} from "@/store/api/workspaces.api";
 import { filterWorkspaces, paginate } from "@/store/selectors/workspace.selectors";
 import type { Workspace as WorkspaceData } from "@/store/types";
 
-function formatDate(dateStr: string): string {
-    if (!dateStr) return "-";
-    try {
-        const date = new Date(dateStr);
-        if (isNaN(date.getTime())) return dateStr;
+const MINUTE = 60;
+const HOUR = MINUTE * 60;
+const DAY = HOUR * 24;
+const WEEK = DAY * 7;
+/** Average month/year lengths — good enough for a "5 months ago" label. */
+const MONTH = DAY * 30.44;
+const YEAR = DAY * 365.25;
 
-        return date.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-        });
-    } catch {
-        return dateStr;
-    }
+const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+
+/**
+ * Relative age for the table cell — days, weeks, months, years. The exact
+ * timestamp stays one click away in the popover (and on hover via `title`),
+ * because "3 weeks ago" is what you scan for and the date is what you verify.
+ */
+function formatRelative(dateStr: string): string {
+    if (!dateStr) return "-";
+
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+
+    // A clock skew between server and browser can push this negative.
+    if (seconds < 0) return "Just now";
+
+    if (seconds < MINUTE) return "Just now";
+    if (seconds < HOUR) return plural(Math.floor(seconds / MINUTE), "minute");
+    if (seconds < DAY) return plural(Math.floor(seconds / HOUR), "hour");
+
+    const days = Math.floor(seconds / DAY);
+    if (days === 1) return "Yesterday";
+    if (seconds < WEEK) return plural(days, "day");
+
+    if (seconds < MONTH) return plural(Math.floor(seconds / WEEK), "week");
+    if (seconds < YEAR) return plural(Math.floor(seconds / MONTH), "month");
+
+    return plural(Math.floor(seconds / YEAR), "year");
 }
 
 function formatExactDate(dateStr: string): string {
@@ -59,8 +90,11 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
     const [openMenu, setOpenMenu] = useState<string | null>(null);
     const [openDatePopover, setOpenDatePopover] = useState<string | null>(null);
     const [copyingId, setCopyingId] = useState<string | null>(null);
+    const [workspaceToRename, setWorkspaceToRename] = useState<WorkspaceData | null>(null);
     const [workspaceToDelete, setWorkspaceToDelete] = useState<WorkspaceData | null>(null);
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+    const [updateWorkspace, { isLoading: renaming }] = useUpdateWorkspaceMutation();
+    const [deleteWorkspace, { isLoading: deleting }] = useDeleteWorkspaceMutation();
 
     const itemsPerPage = 10;
 
@@ -94,6 +128,40 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
         safePage * itemsPerPage,
         currentData.length
     );
+
+    /** The server owns validation; its message is shown verbatim. */
+    const messageFrom = (error: unknown, fallback: string) => {
+        const data = (error as { data?: { message?: string } })?.data;
+        return data?.message || fallback;
+    };
+
+    const renameWorkspace = async (name: string) => {
+        if (!workspaceToRename) return;
+
+        const previous = workspaceToRename.name;
+
+        try {
+            await updateWorkspace({ id: workspaceToRename._id, name }).unwrap();
+            setWorkspaceToRename(null);
+            toast.success(`Renamed to ${name}`, `Was "${previous}"`);
+        } catch (error) {
+            toast.error(messageFrom(error, "Could not rename that workspace."));
+        }
+    };
+
+    const removeWorkspace = async () => {
+        if (!workspaceToDelete) return;
+
+        const { name } = workspaceToDelete;
+
+        try {
+            await deleteWorkspace(workspaceToDelete._id).unwrap();
+            setWorkspaceToDelete(null);
+            toast.success(`Deleted ${name}`, "Everything inside it went with it");
+        } catch (error) {
+            toast.error(messageFrom(error, "Could not delete that workspace."));
+        }
+    };
 
     return (
         <div
@@ -183,9 +251,10 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
                                                     setOpenDatePopover(openDatePopover === key ? null : key);
                                                     setOpenMenu(null);
                                                 }}
+                                                title={formatExactDate(workspace.createdAt)}
                                                 className="hover:underline transition cursor-pointer text-slate-700"
                                             >
-                                                {formatDate(workspace.createdAt)}
+                                                {formatRelative(workspace.createdAt)}
                                             </button>
 
                                             {openDatePopover === `created-${workspace._id}` && (
@@ -197,8 +266,11 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
                                                         <span>Exact Created Date</span>
                                                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">Created</span>
                                                     </div>
-                                                    <p className="text-gray-800 font-medium py-1">
+                                                    <p className="text-gray-800 font-medium pt-1.5">
                                                         {formatExactDate(workspace.createdAt)}
+                                                    </p>
+                                                    <p className="text-[11px] text-gray-500 pb-1">
+                                                        {formatRelative(workspace.createdAt)}
                                                     </p>
                                                 </div>
                                             )}
@@ -213,9 +285,10 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
                                                     setOpenDatePopover(openDatePopover === key ? null : key);
                                                     setOpenMenu(null);
                                                 }}
+                                                title={formatExactDate(workspace.updatedAt)}
                                                 className="hover:underline transition cursor-pointer text-slate-700"
                                             >
-                                                {formatDate(workspace.updatedAt)}
+                                                {formatRelative(workspace.updatedAt)}
                                             </button>
 
                                             {openDatePopover === `updated-${workspace._id}` && (
@@ -227,8 +300,11 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
                                                         <span>Exact Updated Date</span>
                                                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100">Updated</span>
                                                     </div>
-                                                    <p className="text-gray-800 font-medium py-1">
+                                                    <p className="text-gray-800 font-medium pt-1.5">
                                                         {formatExactDate(workspace.updatedAt)}
+                                                    </p>
+                                                    <p className="text-[11px] text-gray-500 pb-1">
+                                                        {formatRelative(workspace.updatedAt)}
                                                     </p>
                                                 </div>
                                             )}
@@ -261,13 +337,8 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
                                                         copyingId={copyingId}
                                                         setCopyingId={setCopyingId}
                                                         setOpenMenu={setOpenMenu}
-                                                        onRename={(workspace) => {
-                                                            console.log("Rename workspace:", workspace);
-                                                        }}
-                                                        onDelete={(workspace) => {
-                                                            setWorkspaceToDelete(workspace);
-                                                            setShowDeleteModal(true);
-                                                        }}
+                                                        onRename={setWorkspaceToRename}
+                                                        onDelete={setWorkspaceToDelete}
                                                     />
                                                 )}
                                             </div>
@@ -373,6 +444,23 @@ export default function WorkspaceTable({ searchQuery = "" }: WorkspaceTableProps
                     </div>
                 </div>
             </div>
+
+            {/* Keyed on the workspace so the rename field re-seeds each time
+                it is opened for a different row. */}
+            <RenameWorkspace
+                key={workspaceToRename?._id ?? "rename"}
+                workspace={workspaceToRename}
+                saving={renaming}
+                onClose={() => setWorkspaceToRename(null)}
+                onSave={renameWorkspace}
+            />
+
+            <DeleteWorkspace
+                workspace={workspaceToDelete}
+                deleting={deleting}
+                onClose={() => setWorkspaceToDelete(null)}
+                onConfirm={removeWorkspace}
+            />
         </div>
     );
 }

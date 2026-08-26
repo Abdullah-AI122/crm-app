@@ -45,7 +45,12 @@ const selectRecordsFor = createSelector(
     }
 );
 
-const selectRecordValuesFor = createSelector(
+/**
+ * Built per hook instance rather than shared: one createSelector memoises on its
+ * LAST arguments, so the board and every open sub-record table calling it with
+ * different id lists would each throw away the previous one's cached result.
+ */
+const makeSelectRecordValuesFor = () => createSelector(
     [selectQueries, (_state: RootState, recordIds: string[]) => recordIds],
     (queries, recordIds) => {
         const wanted = new Set(recordIds);
@@ -64,6 +69,85 @@ const selectRecordValuesFor = createSelector(
         return out;
     }
 );
+
+/**
+ * The sub-records already loaded for a set of parents, READ ONLY.
+ *
+ * Deliberately does not fetch: each open SubRecordTable owns that subscription,
+ * and this exists so the board can look a sub-record up by id — the amendments
+ * panel is mounted at board level and has to resolve whichever row was clicked,
+ * whether it came from the grid or from the block underneath it. Nothing is
+ * subscribed here, so a collapsed row still costs nothing.
+ */
+const makeSelectSubRecordsFor = () => createSelector(
+    [selectQueries, (_state: RootState, parentIds: string[]) => parentIds],
+    (queries, parentIds) => {
+        const wanted = new Set(parentIds);
+        const out: RecordItem[] = [];
+        for (const key of Object.keys(queries)) {
+            const entry = queries[key];
+            if (
+                entry?.endpointName === "getSubRecords" &&
+                typeof entry.originalArgs === "string" &&
+                wanted.has(entry.originalArgs) &&
+                Array.isArray(entry.data)
+            ) {
+                out.push(...(entry.data as RecordItem[]));
+            }
+        }
+        return out;
+    }
+);
+
+export function useSubRecordsFor(parentIds: string[]) {
+    const idsKey = [...parentIds].sort().join(",");
+
+    const stableParentIds = useMemo(
+        () => idsKey.split(",").filter(Boolean),
+        [idsKey]
+    );
+
+    const selectSubRecordsFor = useMemo(() => makeSelectSubRecordsFor(), []);
+
+    return useAppSelector(
+        (state) => selectSubRecordsFor(state, stableParentIds),
+        shallowEqual
+    );
+}
+
+/**
+ * The cells for an arbitrary set of records, fetched and read through the same
+ * shared cache. Used by the board for every row on it, and by each open
+ * sub-record table for its own children.
+ */
+export function useRecordValuesFor(recordIds: string[]) {
+    const dispatch = useAppDispatch();
+
+    const idsKey = [...recordIds].sort().join(",");
+
+    useEffect(() => {
+        if (!idsKey) return;
+        const subscriptions = idsKey
+            .split(",")
+            .filter(Boolean)
+            .map((recordId) =>
+                dispatch(recordValuesApi.endpoints.getRecordValues.initiate(recordId))
+            );
+        return () => subscriptions.forEach((sub) => sub.unsubscribe());
+    }, [idsKey, dispatch]);
+
+    const stableRecordIds = useMemo(
+        () => idsKey.split(",").filter(Boolean),
+        [idsKey]
+    );
+
+    const selectRecordValuesFor = useMemo(() => makeSelectRecordValuesFor(), []);
+
+    return useAppSelector(
+        (state) => selectRecordValuesFor(state, stableRecordIds),
+        shallowEqual
+    );
+}
 
 export function useModuleRecords(collectionIds: string[]) {
     const dispatch = useAppDispatch();
@@ -93,28 +177,7 @@ export function useModuleRecords(collectionIds: string[]) {
         shallowEqual
     );
 
-    const recordIdsKey = records.map((r) => r._id).sort().join(",");
-
-    useEffect(() => {
-        if (!recordIdsKey) return;
-        const subscriptions = recordIdsKey
-            .split(",")
-            .filter(Boolean)
-            .map((recordId) =>
-                dispatch(recordValuesApi.endpoints.getRecordValues.initiate(recordId))
-            );
-        return () => subscriptions.forEach((sub) => sub.unsubscribe());
-    }, [recordIdsKey, dispatch]);
-
-    const stableRecordIds = useMemo(
-        () => recordIdsKey.split(",").filter(Boolean),
-        [recordIdsKey]
-    );
-
-    const recordValues = useAppSelector(
-        (state) => selectRecordValuesFor(state, stableRecordIds),
-        shallowEqual
-    );
+    const recordValues = useRecordValuesFor(records.map((r) => r._id));
 
     return { records, recordValues };
 }

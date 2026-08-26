@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 260" preserveAspectRatio="xMidYMid slice" role="img" aria-label="">
+  <!--
+    PLACEHOLDER workspace cover. Swap this file for your own artwork — the
+    banner references it by path, so nothing else has to change.
+
+    Deliberately desaturated and low-contrast: it sits behind an avatar and a
+    row of buttons, and anything busier would fight them. It carries no colour
+    hashed from the workspace id, because that hue meant nothing anywhere else
+    in the app and read as decoration pretending to be information.
+  -->
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#EEF2F7" />
+      <stop offset="55%" stop-color="#E2E8F0" />
+      <stop offset="100%" stop-color="#CBD5E1" />
+    </linearGradient>
+
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55" />
+      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="0.10" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="260" fill="url(#base)" />
+
+  <!-- Soft geometry: large, slow shapes that survive being cropped at any width. -->
+  <g fill="#94A3B8" opacity="0.16">
+    <circle cx="1340" cy="40" r="190" />
+    <circle cx="1150" cy="230" r="130" />
+    <circle cx="1520" cy="200" r="105" />
+  </g>
+
+  <g stroke="#64748B" stroke-width="1.5" opacity="0.14" fill="none">
+    <path d="M-40 200 C 220 120, 420 250, 700 160 S 1180 60, 1660 150" />
+    <path d="M-40 245 C 240 175, 460 285, 760 205 S 1220 115, 1660 200" />
+  </g>
+
+  <rect width="1600" height="260" fill="url(#sheen)" />
+</svg>

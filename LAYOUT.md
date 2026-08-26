@@ -216,11 +216,34 @@ disabled:bg-slate-400 disabled:cursor-not-allowed
 
 **Secondary button**: `bg-slate-100 hover:bg-slate-200/70 text-zinc-600 rounded-xl px-4 py-2`
 
-**Empty state**: `text-center py-20 text-gray-400` — full `colSpan` inside a table.
+**Empty state (in a table)**: `text-center py-20 text-muted` — full `colSpan` inside a table.
+
+**Empty state (panel)** — the standard "nothing here yet" block. Used by the workspace modules grid and the module collections area:
+
+```
+container:  rounded-xl border border-dashed border-slate-300 bg-card/50 px-6 py-16 text-center
+icon tile:  mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-accent/10 text-accent
+heading:    text-lg font-semibold text-slate-900
+body:       mx-auto mt-1 max-w-sm text-sm text-muted
+action:     mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5
+            text-sm font-semibold text-white transition hover:bg-accent-hover cursor-pointer
+```
+
+Rules:
+- **Every empty state carries its primary action.** An empty state with nothing to click is a dead end — that was the bug in both the workspace and module empty states.
+- The container is `bg-card/50`, not a solid fill: it must read as an *absence* against `bg-panel`, not as another card.
+- The icon tile uses the `bg-accent/10` + `text-accent` tint pair (§4.4), so it re-tints with the theme.
+- Never hardcode a dark surface here. See §11.4.
 
 **Error state**: `text-center py-20 text-red-400 text-sm font-medium`
 
-**Loading**: [CollectionLoader](components/CollectionLoader.tsx) inside a panel, [WorkspaceLoader](components/WorkspaceLoader.tsx) for a whole page. Skeleton bars are `bg-gray-200/70` + `animate-pulse`, staggered with inline `animationDelay`. The legacy `.shimmer` class in `globals.css` is tuned for dark surfaces and reads as invisible on `#f4f4f6` — prefer `animate-pulse`.
+**Loading**: [CollectionLoader](components/CollectionLoader.tsx) inside a panel, [WorkspaceLoader](components/WorkspaceLoader.tsx) for a whole page. Skeleton bars are `bg-control` + `animate-pulse`, staggered with inline `animationDelay`:
+
+```
+<div className="h-32 rounded-xl bg-control animate-pulse" style={{ animationDelay: `${i * 120}ms` }} />
+```
+
+`bg-control` is a token, so the bar stays one step off the surface in every theme. The legacy `.shimmer` class in `globals.css` is a **white** gradient — it is invisible on any light theme and must not be used for new skeletons (§11.6).
 
 ## 8. Interaction
 
@@ -251,15 +274,39 @@ Backdrop: `fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4`
 
 Two layers do the work:
 
-1. **Semantic tokens** — `--canvas`, `--panel`, `--card`, `--control`, `--control-hover`, `--foreground`, `--body`, `--muted`, `--hairline`, `--accent`, `--accent-hover`, `--primary`. Exposed to Tailwind via `@theme inline`, so they are real utilities: `bg-canvas`, `bg-panel`, `bg-card`, `bg-control`, `text-foreground`, `text-body`, `text-muted`, `border-hairline`, `bg-accent`, `hover:bg-accent-hover`. Opacity suffixes work (`bg-accent/10`).
+1. **Semantic tokens** — `--canvas`, `--panel`, `--card`, `--control`, `--control-hover`, `--foreground`, `--body`, `--muted`, `--hairline`, `--accent`, `--accent-hover`, `--primary`, plus two effect tokens `--drag-shadow` and `--avatar-ring`. Exposed to Tailwind via `@theme inline`, so they are real utilities: `bg-canvas`, `bg-panel`, `bg-card`, `bg-control`, `bg-control-hover`, `text-foreground`, `text-body`, `text-muted`, `border-hairline`, `bg-accent`, `hover:bg-accent-hover`, `border-avatar-ring`. Opacity suffixes work (`bg-accent/10`, `bg-card/50`).
 2. **Palette overrides** — Tailwind v4 compiles `text-slate-800` to `color: var(--color-slate-800)`, so each theme class redefines the neutral scales (`slate` / `gray` / `zinc`) and the status tints. Every pre-existing utility retargets itself; no per-component `dark:` variants are needed. In `.dark` the neutral scale is **inverted** — `slate-800` is a light pixel — which keeps existing pairs like `bg-slate-800 text-slate-200` legible.
 
 `<body>` carries `bg-canvas text-body` ([layout.tsx](app/layout.tsx)), so a route that sets no background inherits the theme.
 
+### 10.1 Which layer to reach for
+
+Both layers are live, and picking the wrong one is the most common mistake:
+
+| You are writing | Use | Because |
+|---|---|---|
+| A new surface, border or accent | **Semantic token** (`bg-card`, `border-hairline`, `bg-accent`) | Explicit, and it is the layer every theme is guaranteed to define. |
+| Editing existing `slate`/`gray`/`zinc` utilities | **Leave them** | The palette override already re-themes them; rewriting is churn. |
+| Ink that must invert with the theme | `text-slate-900` / `text-slate-700` **or** `text-foreground` / `text-body` | Both work. Prefer the token in new code. |
+| Muted / secondary text | `text-muted` | `text-gray-400` and `text-zinc-400` also invert, but `--muted` is tuned per theme. |
+| A one-off effect (drag lift, avatar ring) | `var(--drag-shadow)`, `border-avatar-ring` | These flip *kind*, not just value — see below. |
+
+Two tokens exist because a value change is not enough:
+
+- `--drag-shadow` — a black drop shadow is invisible on a dark board, so `.dark` lifts with a **white** shadow instead.
+- `--avatar-ring` — a translucent dark ring on light themes, **solid white** in `.dark`, where the avatar sits on a near-black bar.
+
+If a new effect needs to change kind (not just shade) between themes, add a token rather than a `dark:` variant.
+
+### 10.2 Status tints in dark
+
+`.dark` also overrides `--color-blue-50/100`, `--color-emerald-50/100`, `--color-red-50/100`, `--color-amber-50/100`. The `50`-level fills from §4.4 are near-white and glare on a dark surface, so they are re-pointed at deep, desaturated versions. The `600`-level text stays as Tailwind ships it — it is already legible on both. **A new status colour needs its `50`/`100` pair added to `.dark`, or it will burn a hole in the dark UI.**
+
 Rules:
 - New surfaces use the token utility, never a hex. `bg-[#f4f4f6]` is now `bg-panel`.
 - `text-white` / `bg-black` are deliberately **not** themed — they are on-accent ink and modal scrim, constant across themes.
-- Adding a theme = one class in `globals.css` + one entry in `themes` in `data/data.js`. Nothing else.
+- Adding a theme = one class in `globals.css` + one entry in `themes` in `data/data.js`. Nothing else. The class must define **every** semantic token; a missing one falls back to `:root` (the light value) and will look wrong.
+- `.blue` / `.green` / `.purple` are light-family themes: they override only the `50`–`200` neutral steps, because their ink is already dark. Only `.dark` inverts the full `400`–`900` range.
 
 ## 11. Known inconsistencies
 
@@ -268,9 +315,9 @@ Audited across `app/` and `components/`; fix these before adding new surfaces.
 1. ~~**Four coral variants**~~ — fixed. All four collapsed into `bg-accent` / `hover:bg-accent-hover` (§10). The tab strip and the primary button are now the same token, and it follows the selected theme.
 2. **Two UI fonts**: `font-dmsans` (119) on workspace/module pages, `font-google-sans` (66) on the dashboard. Pick one for chrome.
 3. **Three neutral scales**: `slate`, `zinc` and `gray` all appear in borders and text. `slate` dominates (111 border uses) — standardise on it.
-4. **Dark colours on a light UI**: `#111727` and `#0D1B2A` appear in [workspace/[id]/page.tsx](app/workspace/[id]/page.tsx) empty states, left over from a dark design. They look wrong against `#D9D9D9`.
+4. ~~**Dark colours on a light UI**~~ — fixed. The `#111727` block in [workspace/[id]/page.tsx](app/workspace/[id]/page.tsx) and the `border-slate-500` block in the module page both use the §7 **Empty state (panel)** recipe now, so they follow the theme. Both also gained the create button they were missing.
 5. ~~**Theme variables unused**~~ — fixed; see §10. Still hardcoded and outside the token layer: the teal wordmark gradient ([Sidebar.tsx:116](components/Sidebar.tsx#L116)), the unread dot ([notifications.tsx:135](components/notifications.tsx#L135)), and the violet/teal nav chips — decide whether those follow `--primary` or stay brand-constant.
-6. **`.shimmer` vs `animate-pulse`** — two skeleton systems; `.shimmer` only works on dark backgrounds.
+6. **`.shimmer` vs `animate-pulse`** — two skeleton systems; `.shimmer` is a hardcoded white gradient and only works on dark backgrounds. `animate-pulse` on `bg-control` is the themed replacement (§7). The module page has been converted; `.shimmer` still lingers elsewhere in `globals.css` and its remaining call sites.
 7. **`shadow-xl` vs `shadow-2xl`** used interchangeably for modals.
 
 ## 12. Token layer (implemented)
@@ -279,14 +326,42 @@ Audited across `app/` and `components/`; fix these before adding new surfaces.
 
 ```css
 :root, .light {
-  --canvas:  #d9d9d9;   /* page background behind the shell */
-  --panel:   #f4f4f6;   /* content shell, active tab fill   */
-  --card:    #ffffff;   /* sidebar, modals, popovers        */
-  --control: #e3e3e5;   /* pagination buttons at rest       */
+  /* surfaces */
+  --canvas:  #d9d9d9;        /* page background behind the shell */
+  --panel:   #f4f4f6;        /* content shell, active tab fill   */
+  --card:    #ffffff;        /* sidebar, modals, popovers        */
+  --control: #e3e3e5;        /* pagination buttons at rest       */
+  --control-hover: #d4d4d8;
 
+  /* ink */
   --foreground: #0f172a;  --body: #1e293b;  --muted: #7c7c80;  --hairline: #e2e8f0;
+
+  /* brand */
   --accent: #ff7675;      --accent-hover: #ff5f5e;             --primary: #00cec9;
+
+  /* effects — these flip kind, not just value (§10.1) */
+  --drag-shadow: 0 18px 35px -10px rgb(0 0 0 / 0.45);
+  --avatar-ring: rgb(15 23 42 / 0.20);
+
+  --background: var(--canvas);   /* legacy alias */
 }
 ```
 
+Themes shipped: `.light` (= `:root`), `.dark`, `.blue`, `.green`, `.purple`. Only `.dark` inverts the neutral scale and overrides the status tints (§10.2).
+
 So `bg-[#f4f4f6]` is `bg-panel`, `bg-[#FF7F77]` is `bg-accent`, `text-[#7c7c80]` is `text-muted`, and the notch shadow reads `[box-shadow:3px_3px_0_0_var(--panel)]`.
+
+**Full utility map** — the `@theme inline` block turns each token into these:
+
+| Token | Utilities |
+|---|---|
+| `--canvas` | `bg-canvas` |
+| `--panel` | `bg-panel` |
+| `--card` | `bg-card`, `ring-card`, `text-card` |
+| `--control` / `--control-hover` | `bg-control`, `hover:bg-control-hover` |
+| `--foreground` / `--body` / `--muted` | `text-foreground`, `text-body`, `text-muted` |
+| `--hairline` | `border-hairline` |
+| `--accent` / `--accent-hover` | `bg-accent`, `text-accent`, `border-accent`, `hover:bg-accent-hover` |
+| `--primary` | `bg-primary`, `text-primary` |
+| `--avatar-ring` | `border-avatar-ring` |
+| `--drag-shadow` | not a utility — use `var(--drag-shadow)` in an inline style |

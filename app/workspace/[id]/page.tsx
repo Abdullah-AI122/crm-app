@@ -1,31 +1,48 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { ImUngroup } from "react-icons/im";
 import { FaPlus } from "react-icons/fa";
 
+import {
+    HiBarsArrowDown,
+    HiBarsArrowUp,
+    HiOutlineMagnifyingGlass
+} from "react-icons/hi2";
+
 import Sidebar from "@/components/Sidebar";
+import { toast } from "@/components/ui/toast";
 import MemberInvite from "@/components/ui/modals/memberInvite";
 import CreateModule from "@/components/ui/modals/createModule";
 import DeleteModuleModal from "@/components/ui/modals/deleteModuleConfermation";
 import ProfileDropdown from "@/components/Profile";
-import MembersButton from "@/components/ui/buttons/Membersbutton";
+import AiSidebar from "@/components/AiSidebar";
 
-import { PALETTE } from "@/data/data";
-import ModuleCard from "@/components/ui/cards/moduleCard";
+import Tooltip from "@/components/ui/helpers/tooltip";
+import { useSearchHotkey } from "@/lib/useSearchHotkey";
+import type { ModuleTag } from "@/store/types";
+import WorkspaceBanner from "@/components/workspace/WorkspaceBanner";
+import ModuleRow, { ModuleRowHeader } from "@/components/workspace/ModuleRow";
 import { useGetWorkspaceQuery } from "@/store/api/workspaces.api";
 import { useGetMembersQuery, useAddMemberMutation, useRemoveMemberMutation } from "@/store/api/members.api";
-import { useGetModulesQuery, useCreateModuleMutation, useDeleteModuleMutation } from "@/store/api/modules.api";
+import {
+    useGetModulesQuery,
+    useCreateModuleMutation,
+    useUpdateModuleMutation,
+    useDeleteModuleMutation
+} from "@/store/api/modules.api";
 
 
-function colorFor(id: string) {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-        hash = id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return PALETTE[Math.abs(hash) % PALETTE.length];
-}
+/** How far back a module must have been created to still count as "recent". */
+const DATE_FILTERS = [
+    { value: "any", label: "Any time", days: 0 },
+    { value: "7", label: "Last 7 days", days: 7 },
+    { value: "30", label: "Last 30 days", days: 30 },
+    { value: "90", label: "Last 90 days", days: 90 }
+] as const;
+
+type DateFilter = (typeof DATE_FILTERS)[number]["value"];
 
 
 export default function WorkspacePage() {
@@ -50,9 +67,46 @@ export default function WorkspacePage() {
     const [addMember, { isLoading: adding }] = useAddMemberMutation();
     const [removeMemberMutation] = useRemoveMemberMutation();
     const [createModuleMutation, { isLoading: creatingModule }] = useCreateModuleMutation();
+    const [updateModuleMutation] = useUpdateModuleMutation();
     const [deleteModuleMutation] = useDeleteModuleMutation();
 
     const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
+
+    /**
+     * Finding controls. All three are plain state and the list below is derived
+     * from them — nothing is stored, so a refresh returns you to the full list
+     * rather than to a filter you had forgotten about.
+     */
+    const [query, setQuery] = useState("");
+    const [sortAsc, setSortAsc] = useState(true);
+
+    // Same key as the dashboard's search — see lib/useSearchHotkey.ts.
+    const searchRef = useRef<HTMLInputElement>(null);
+    useSearchHotkey(searchRef);
+
+    /**
+     * The date window is stored as a resolved CUTOFF, computed when the filter
+     * is chosen rather than on every render.
+     *
+     * Two reasons. Date.now() in a render body is an impure call and the React
+     * Compiler rejects it. And pinning the boundary at the moment of choosing is
+     * the better behaviour anyway: a cutoff recomputed each render would let
+     * rows quietly fall out of "Last 7 days" while someone was reading the list.
+     */
+    const [dateFilter, setDateFilter] = useState<DateFilter>("any");
+    const [cutoff, setCutoff] = useState<number | null>(null);
+
+    const pickDateFilter = (value: DateFilter) => {
+        const days = DATE_FILTERS.find((f) => f.value === value)?.days ?? 0;
+        setDateFilter(value);
+        setCutoff(days ? Date.now() - days * 24 * 60 * 60 * 1000 : null);
+    };
+
+    const clearFilters = () => {
+        setQuery("");
+        setDateFilter("any");
+        setCutoff(null);
+    };
 
     const handleInviteMember = async () => {
         if (!userId.trim()) return;
@@ -90,6 +144,28 @@ export default function WorkspacePage() {
         }
     };
 
+    /**
+     * Tags replace as a whole set — the row owns the add/remove arithmetic and
+     * names the change; this owns whether it actually landed. A failed write
+     * used to disappear into console.error, so the tag simply never appeared
+     * and nothing said why.
+     */
+    const handleSaveTags = async (
+        moduleId: string,
+        tags: ModuleTag[],
+        note: string
+    ) => {
+        try {
+            await updateModuleMutation({ moduleId, workspaceId, tags }).unwrap();
+            toast.success(note);
+        } catch (error) {
+            toast.error(
+                "Could not save tags",
+                (error as { data?: { message?: string } })?.data?.message
+            );
+        }
+    };
+
     const handleDeleteModule = async (moduleId: string) => {
         setDeletingModuleId(moduleId);
         try {
@@ -102,11 +178,57 @@ export default function WorkspacePage() {
         }
     };
 
-    const workspaceColor = colorFor(String(workspaceId));
-    const workspaceInitial = (workspace?.name || "W").trim().charAt(0).toUpperCase();
-
     const moduleCount = modules.length;
     const memberCount = members.length;
+
+    const needle = query.trim().toLowerCase();
+
+    /**
+     * Search, then date, then sort — in that order, and always from `modules`
+     * rather than from a previous result, so the three controls stay
+     * independent of each other.
+     *
+     * localeCompare, not `<`: a plain comparison orders by code point, which
+     * puts every capitalised name above every lower-case one and mis-sorts
+     * accents.
+     */
+    const visibleModules = modules
+        .filter((m) => (needle ? m.name.toLowerCase().includes(needle) : true))
+        .filter((m) => {
+            if (cutoff === null) return true;
+            // A module with no timestamp cannot be shown to be recent, so a
+            // date filter excludes it rather than guessing.
+            const created = m.createdAt ? new Date(m.createdAt).getTime() : NaN;
+            return !isNaN(created) && created >= cutoff;
+        })
+        .slice()
+        .sort((a, b) =>
+            sortAsc
+                ? a.name.localeCompare(b.name)
+                : b.name.localeCompare(a.name)
+        );
+
+    /**
+     * Every tag in use across this workspace, first spelling and colour wins.
+     *
+     * Derived from the modules already loaded, so offering reuse costs no
+     * request — and a tag typed on one module is immediately offered on the
+     * rest, which is the only way they stay ONE tag rather than four
+     * near-identical ones.
+     */
+    const knownTags = (() => {
+        const seen = new Map<string, ModuleTag>();
+        for (const m of modules) {
+            for (const tag of m.tags ?? []) {
+                const key = tag.label.toLowerCase();
+                if (!seen.has(key)) seen.set(key, tag);
+            }
+        }
+        return Array.from(seen.values());
+    })();
+
+    /** Distinguishes "nothing here" from "nothing matches what you asked". */
+    const filtering = Boolean(needle) || dateFilter !== "any";
 
     // Render
     return (
@@ -115,121 +237,189 @@ export default function WorkspacePage() {
                 <Sidebar />
 
                 {/* Shell card — the frame every page sits in (LAYOUT.md §7) */}
-                <div className="min-h-screen w-full flex flex-col bg-panel rounded-l-2xl overflow-hidden shadow-sm">
+                <div className="min-h-screen w-full flex flex-col bg-panel overflow-hidden shadow-sm">
 
                     {/* Top navbar */}
                     <header className="sticky top-0 z-20 bg-panel border-b border-slate-200">
                         <div className="w-full mx-auto px-6 h-16 flex items-center justify-between gap-4">
+                            {/* Just the label — no tile. The banner below carries
+                                the workspace's colour AND its name at a size worth
+                                reading; repeating both up here said everything
+                                twice and still left the name easy to miss. */}
                             <div className="flex items-center gap-3 min-w-0">
-
-                                {/* Workspace tile — colour hashed from the id (LAYOUT.md §4.5) */}
-                                <div
-                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold shadow-sm font-dmsans"
-                                    style={{
-                                        backgroundColor: workspaceColor.bg,
-                                        color: workspaceColor.accent,
-                                    }}
-                                >
-                                    {workspaceInitial}
-                                </div>
-
-                                <div className="min-w-0">
-                                    <h1 className="text-sm font-semibold text-slate-900 truncate font-dmsans">
-                                        {workspace?.name || "Workspace"}
-                                    </h1>
-                                    <p className="text-[11px] text-muted truncate font-dmsans">
-                                        {moduleCount} {moduleCount === 1 ? "module" : "modules"}
-                                        {" · "}
-                                        {memberCount} {memberCount === 1 ? "member" : "members"}
-                                    </p>
-                                </div>
+                                <h1 className="truncate text-lg font-semibold text-slate-900 font-dmsans">
+                                    Workspace
+                                </h1>
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0">
-                                <MembersButton
-                                    members={members}
-                                    onInvite={() => setShowInvite(true)}
-                                />
-
                                 <ProfileDropdown />
                             </div>
                         </div>
                     </header>
 
                     {/* Content */}
-                    <div className="flex-1 px-6 py-6">
+                    <div className="flex-1 space-y-6 px-6 py-6">
 
-                        {/* Modules section */}
-                        <div className="mb-10">
+                        <WorkspaceBanner
+                            name={workspace?.name || "Workspace"}
+                            icon={workspace?.icon}
+                            moduleCount={moduleCount}
+                            memberCount={memberCount}
+                            members={members}
+                            workspaceId={workspaceId}
+                            onInvite={() => setShowInvite(true)}
+                        />
 
-                            {/* Section header. Creating happens from the add tile at the
-                                end of the grid, so there is no button up here. */}
-                            <div className="mb-5 min-w-0">
-                                <h2 className="text-lg font-semibold text-slate-900 font-dmsans">
-                                    Modules
-                                </h2>
-                                <p className="mt-0.5 text-xs text-muted font-dmsans">
-                                    {moduleCount === 0
-                                        ? "Nothing here yet"
-                                        : "Open a module to work on its board"}
-                                </p>
+                        <section>
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <h2 className="text-lg font-semibold text-slate-900 font-dmsans">
+                                        Modules
+                                    </h2>
+                                    <p className="mt-0.5 text-xs text-muted font-dmsans">
+                                        {moduleCount === 0
+                                            ? "Nothing here yet"
+                                            : "Open a module to work on its records"}
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {/* Only worth showing once there is a list to
+                                        narrow — on an empty workspace these are
+                                        three controls over nothing. */}
+                                    {moduleCount > 0 && (
+                                        <>
+                                            <div className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-card px-3">
+                                                <HiOutlineMagnifyingGlass className="h-4 w-4 shrink-0 text-muted" />
+                                                <input
+                                                    ref={searchRef}
+                                                    value={query}
+                                                    onChange={(e) => setQuery(e.target.value)}
+                                                    placeholder="Find a module"
+                                                    className="w-32 bg-transparent text-sm font-medium text-slate-800 outline-none placeholder:text-muted font-dmsans"
+                                                />
+
+                                                {/* The shortcut is only worth
+                                                    advertising where it works. */}
+                                                <span className="hidden shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-control/60 px-1.5 py-0.5 sm:flex">
+                                                    <span className="text-[10px] text-muted">Ctrl</span>
+                                                    <span className="text-[10px] text-muted/60">+</span>
+                                                    <span className="text-[10px] text-muted">K</span>
+                                                </span>
+                                            </div>
+
+                                            <Tooltip
+                                                label="Filter by when the module was created"
+                                                side="bottom"
+                                            >
+                                            <select
+                                                value={dateFilter}
+                                                onChange={(e) => pickDateFilter(e.target.value as DateFilter)}
+                                                aria-label="Filter by when the module was created"
+                                                className="h-10 rounded-xl border border-slate-200 bg-card px-3 text-sm font-medium text-slate-800 outline-none transition focus:border-accent cursor-pointer font-dmsans"
+                                            >
+                                                {DATE_FILTERS.map((option) => (
+                                                    <option key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            </Tooltip>
+
+                                            {/* One button, not two: sorting by
+                                                name has exactly two directions,
+                                                and a pair of radio buttons for a
+                                                binary is a control too many. */}
+                                            <Tooltip
+                                                label={
+                                                    sortAsc
+                                                        ? "Sorted A to Z — click for Z to A"
+                                                        : "Sorted Z to A — click for A to Z"
+                                                }
+                                                side="bottom"
+                                            >
+                                            <button
+                                                onClick={() => setSortAsc((v) => !v)}
+                                                aria-label="Toggle sort direction"
+                                                className="flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-card px-3 text-sm font-medium text-slate-800 transition hover:border-accent/50 cursor-pointer font-dmsans"
+                                            >
+                                                {sortAsc ? (
+                                                    <HiBarsArrowUp className="h-4 w-4 text-muted" />
+                                                ) : (
+                                                    <HiBarsArrowDown className="h-4 w-4 text-muted" />
+                                                )}
+                                                {sortAsc ? "A–Z" : "Z–A"}
+                                            </button>
+                                            </Tooltip>
+                                        </>
+                                    )}
+
+                                    <Tooltip
+                                        label="Create a module in this workspace"
+                                        side="bottom"
+                                    >
+                                        <button
+                                            onClick={() => setShowModuleModal(true)}
+                                            className="flex h-10 shrink-0 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white transition hover:bg-accent-hover cursor-pointer font-dmsans"
+                                        >
+                                            <FaPlus size={11} />
+                                            New Module
+                                        </button>
+                                    </Tooltip>
+                                </div>
                             </div>
 
                             {moduleCount === 0 ? (
-                                <div className="rounded-xl border border-dashed border-slate-300 bg-card/60 px-6 py-20 text-center">
+                                <div className="rounded-xl border border-dashed border-slate-300 bg-card/60 px-6 py-16 text-center">
                                     <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-accent/10 text-accent">
                                         <ImUngroup size={24} />
                                     </div>
 
-                                    <h3 className="text-lg font-semibold text-slate-900 font-dmsans">
+                                    <h3 className="text-base font-semibold text-slate-900 font-dmsans">
                                         No modules yet
                                     </h3>
 
                                     <p className="mt-1 text-sm text-muted font-dmsans">
                                         Create your first module to start organizing work
                                     </p>
+                                </div>
+                            ) : visibleModules.length === 0 ? (
+                                <div className="rounded-xl border border-dashed border-slate-300 bg-card/60 px-6 py-12 text-center font-dmsans">
+                                    <p className="text-sm text-muted">
+                                        No module matches {needle ? `"${query.trim()}"` : "that filter"}.
+                                    </p>
 
-                                    <button
-                                        onClick={() => setShowModuleModal(true)}
-                                        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-hover cursor-pointer font-dmsans"
-                                    >
-                                        <FaPlus size={11} />
-                                        Create Module
-                                    </button>
+                                    {filtering && (
+                                        <button
+                                            onClick={clearFilters}
+                                            className="mt-3 text-xs font-semibold text-accent transition hover:underline cursor-pointer"
+                                        >
+                                            Clear filters
+                                        </button>
+                                    )}
                                 </div>
                             ) : (
-                                // auto-fill tracks capped at the card's own 360px width, so
-                                // cards pack from the left with only gap-5 between them.
-                                // Equal 1/3 columns left a wide gap beside a 360px card.
-                                <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,360px))] gap-5">
-                                    {modules.map((module) => (
-                                        <ModuleCard
+                                /* One bordered list, not a grid of cards: the
+                                   names line up in a single column, which is
+                                   what the eye actually scans. */
+                                <div className="overflow-hidden rounded-xl border border-slate-200 bg-card">
+                                    <ModuleRowHeader />
+
+                                    {visibleModules.map((module) => (
+                                        <ModuleRow
                                             key={module._id}
                                             module={module}
                                             workspaceId={workspaceId}
-                                            onDelete={(moduleId) => {
-                                                setDeleteModuleModal(moduleId);
-                                            }}
-                                            deletingModuleId={deletingModuleId}
+                                            onDelete={(moduleId) => setDeleteModuleModal(moduleId)}
+                                            onSaveTags={handleSaveTags}
+                                            knownTags={knownTags}
+                                            deleting={deletingModuleId === module._id}
                                         />
                                     ))}
-
-                                    {/* Add tile — keeps the create action next to the
-                                        cards, where the eye already is. */}
-                                    <button
-                                        onClick={() => setShowModuleModal(true)}
-                                        className="group flex min-h-[220px] w-full max-w-[360px] flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-slate-300 bg-card/40 transition hover:border-accent hover:bg-card/70 cursor-pointer"
-                                    >
-                                        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10 text-accent transition group-hover:bg-accent group-hover:text-white">
-                                            <FaPlus size={14} />
-                                        </span>
-                                        <span className="text-sm font-semibold text-slate-700 font-dmsans">
-                                            New Module
-                                        </span>
-                                    </button>
                                 </div>
                             )}
-                        </div>
+                        </section>
                     </div>
 
                     {/* Invite Member Modal */}
@@ -265,6 +455,13 @@ export default function WorkspacePage() {
                         setDeleteModuleModal={setDeleteModuleModal}
                     />
                 </div>
+
+                {/* Right rail — Atlas (CRM) and Relay (workflows) */}
+                <AiSidebar
+                    agent="atlas"
+                    context={workspace?.name || "this workspace"}
+                    workspaceId={workspaceId}
+                />
             </section>
         </>
     );

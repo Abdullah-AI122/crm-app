@@ -1,4 +1,5 @@
-import { baseApi } from "../baseApi";
+import { ACTIVITY_TAG, baseApi } from "../baseApi";
+import type { MemberRole } from "@/lib/roles";
 import type { Member } from "../types";
 
 export const membersApi = baseApi.injectEndpoints({
@@ -25,8 +26,52 @@ export const membersApi = baseApi.injectEndpoints({
                 method: "POST",
                 body
             }),
+            // The API answers with an envelope; without this the hook handed back
+            // `{ message, member }` while claiming to be a Member.
+            transformResponse: (response: { member: Member }) => response.member,
             invalidatesTags: (_result, _error, { workspaceId }) => [
-                { type: "Member", id: `LIST-${workspaceId}` }
+                { type: "Member", id: `LIST-${workspaceId}` },
+                ACTIVITY_TAG
+            ]
+        }),
+
+        updateMemberRole: build.mutation<
+            Member,
+            { workspaceId: string; memberUserId: string; role: MemberRole }
+        >({
+            query: ({ workspaceId, memberUserId, role }) => ({
+                url: `/workspace-members/${workspaceId}/${memberUserId}`,
+                method: "PUT",
+                body: { role }
+            }),
+            transformResponse: (response: { member: Member }) => response.member,
+
+            // The dropdown shows the new role straight away; a rejected change
+            // (last owner, admin reaching for ownership) rolls it back and the
+            // caller surfaces the server's own message.
+            async onQueryStarted(
+                { workspaceId, memberUserId, role },
+                { dispatch, queryFulfilled }
+            ) {
+                const patch = dispatch(
+                    membersApi.util.updateQueryData("getMembers", workspaceId, (draft) => {
+                        const row = draft.find(
+                            (member) => String(member.user?._id ?? member._id) === memberUserId
+                        );
+                        if (row) row.role = role;
+                    })
+                );
+
+                try {
+                    await queryFulfilled;
+                } catch {
+                    patch.undo();
+                }
+            },
+
+            invalidatesTags: (_result, _error, { workspaceId }) => [
+                { type: "Member", id: `LIST-${workspaceId}` },
+                ACTIVITY_TAG
             ]
         }),
 
@@ -39,7 +84,8 @@ export const membersApi = baseApi.injectEndpoints({
                 method: "DELETE"
             }),
             invalidatesTags: (_result, _error, { workspaceId }) => [
-                { type: "Member", id: `LIST-${workspaceId}` }
+                { type: "Member", id: `LIST-${workspaceId}` },
+                ACTIVITY_TAG
             ]
         })
     })
@@ -48,5 +94,6 @@ export const membersApi = baseApi.injectEndpoints({
 export const {
     useGetMembersQuery,
     useAddMemberMutation,
+    useUpdateMemberRoleMutation,
     useRemoveMemberMutation
 } = membersApi;

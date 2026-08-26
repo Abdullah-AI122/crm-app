@@ -1,19 +1,18 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { notifications } from "@/data/data";
 import Sidebar from "@/components/Sidebar";
-import { IoIosSearch } from "react-icons/io";
 import NotificationDropdown from "@/components/notifications";
 import WorkspaceSections from "@/components/homesection";
 import ProfileDropdown from "@/components/Profile";
 import CreateWorkspace from "@/components/ui/modals/createWorkspace";
 import SearchBar from "@/components/searchBar";
 import WorkspaceLoader from "@/components/WorkspaceLoader";
+import AiSidebar from "@/components/AiSidebar";
 import {
     useGetWorkspacesQuery,
-    useCreateWorkspaceMutation,
-    useDeleteWorkspaceMutation
+    useCreateWorkspaceMutation
 } from "@/store/api/workspaces.api";
 
 export default function DashboardPage() {
@@ -24,14 +23,10 @@ export default function DashboardPage() {
     const [error, setError] = useState("");
     const [notification, setNotification] = useState(false);
     const [search, setSearch] = useState("");
-    const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-
-    const menuRef = useRef<HTMLDivElement | null>(null);
 
     // Same cache entry the Sidebar and the workspace table subscribe to.
     const { isLoading } = useGetWorkspacesQuery();
     const [createWorkspaceMutation, { isLoading: creating }] = useCreateWorkspaceMutation();
-    const [deleteWorkspaceMutation] = useDeleteWorkspaceMutation();
 
     const createWorkspace = async () => {
         if (!workspaceName.trim()) {
@@ -49,31 +44,6 @@ export default function DashboardPage() {
             setError("Workspace creation failed");
         }
     };
-
-    const deleteWorkspace = async (id: string) => {
-        setOpenMenuId(null);
-
-        if (!confirm("Are you sure you want to delete this workspace? This action cannot be undone.")) {
-            return;
-        }
-
-        try {
-            await deleteWorkspaceMutation(id).unwrap();
-        } catch {
-            alert("Something went wrong while deleting workspace");
-        }
-    };
-
-    // Close the open action menu on outside click
-    useEffect(() => {
-        const handleClick = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-                setOpenMenuId(null);
-            }
-        };
-        document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
-    }, []);
 
     if (isLoading) {
         return <WorkspaceLoader />;
@@ -99,7 +69,6 @@ export default function DashboardPage() {
                             <ProfileDropdown
                                 open={profileOpen}
                                 setOpen={setProfileOpen}
-                                onLogout={() => console.log("Logout")}
                             />
                         </div>
                     </div>
@@ -119,6 +88,9 @@ export default function DashboardPage() {
                     />
                 )}
             </div>
+
+            {/* Right rail — Atlas, scoped to every workspace from here */}
+            <AiSidebar agent="atlas" context="all workspaces" />
         </section>
     );
 }

@@ -42,6 +42,12 @@
 
   /* ring around the profile avatar — needs to read against the bar behind it */
   --avatar-ring: rgb(15 23 42 / 0.20);
+  /* ink ON a solid tag colour. Not a shade of --foreground: a tag's fill is a
+     saturated user-picked hue, so the label has to contrast with THAT, not with
+     the page. White reads on every swatch in the light family; .dark flips it
+     to near-black, because the same fill sits much brighter than its
+     surroundings there and white ink loses its separation from ordinary text. */
+  --tag-ink: #ffffff;
 
   /* legacy aliases kept for anything still reading them */
   --background: var(--canvas);
@@ -68,6 +74,8 @@
 
   /* solid white: the avatar sits on a near-black bar and must stand out */
   --avatar-ring: #ffffff;
+  /* see the note in :root — inverted here, on purpose */
+  --tag-ink: #0b1120;
 
   --background: var(--canvas);
 
@@ -133,6 +141,7 @@
   --primary: #2563eb;
   --drag-shadow: 0 18px 35px -10px rgb(0 0 0 / 0.35);
   --avatar-ring: rgb(23 37 84 / 0.25);
+  --tag-ink: #ffffff;
 
   --background: var(--canvas);
 
@@ -162,6 +171,7 @@
   --primary: #16a34a;
   --drag-shadow: 0 18px 35px -10px rgb(0 0 0 / 0.35);
   --avatar-ring: rgb(20 83 45 / 0.25);
+  --tag-ink: #ffffff;
 
   --background: var(--canvas);
 
@@ -191,6 +201,7 @@
   --primary: #9333ea;
   --drag-shadow: 0 18px 35px -10px rgb(0 0 0 / 0.35);
   --avatar-ring: rgb(59 7 100 / 0.25);
+  --tag-ink: #ffffff;
 
   --background: var(--canvas);
 
@@ -215,6 +226,7 @@
   --color-muted: var(--muted);
   --color-hairline: var(--hairline);
   --color-avatar-ring: var(--avatar-ring);
+  --color-tag-ink: var(--tag-ink);
 
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
@@ -274,4 +286,71 @@
 
 .font-google-sans {
   font-family: var(--font-google-sans);
+}
+
+/* ── Mirror chip save indicator ──────────────────────────────────────────
+   A linked value writes to the server; until it lands the chip's border
+   sweeps around in the accent colour, and once it does the border is solid.
+   The ring is a conic gradient behind a 1.5px inset, so it costs no extra
+   element and follows the chip's rounded shape exactly.
+
+   @property is what makes the angle animatable — a plain custom property
+   would jump rather than tween. */
+@property --mirror-sweep {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes mirror-sweep {
+  from { --mirror-sweep: 0; }
+  to   { --mirror-sweep: 1; }
+}
+
+.mirror-ring {
+  padding: 1.5px;
+  border-radius: 9999px;
+  background-image: conic-gradient(
+    var(--accent) calc(var(--mirror-sweep) * 1turn),
+    color-mix(in srgb, var(--accent) 18%, transparent) 0
+  );
+}
+
+/* In flight: the ring fills, over and over, until the write returns. */
+.mirror-ring--saving {
+  animation: mirror-sweep 0.9s linear infinite;
+}
+
+/* Landed: a complete ring, held briefly so the change is visibly finished. */
+.mirror-ring--saved {
+  --mirror-sweep: 1;
+}
+
+/* ── Sub-record grid ─────────────────────────────────────────────────────
+   The block is drawn on --control so it reads as an inset box under its
+   parent row. That surface sits close enough to slate-300 — the line colour
+   the whole table is ruled in — that every border inside it washed out and
+   the grid looked like it had lost its columns.
+
+   Rather than restyle each cell (the sub-record cells are the BOARD's Cell
+   component, which must not learn where it is being rendered), the line token
+   itself is re-pointed for this subtree: `border-slate-300` compiles to
+   var(--color-slate-300), so one declaration re-rules the header, the name
+   cell, every value cell and the trailing edge together.
+
+   The value is TRANSLUCENT rather than a solid, so it darkens whatever surface
+   it lands on and holds for .light/.blue/.green/.purple without five copies.
+   Only .dark has to invert it.
+
+   It was written as color-mix(in srgb, var(--foreground) 26%, var(--control))
+   first. Do not go back to that: the minifier collapsed it to plain
+   var(--foreground), which would have ruled the whole grid in near-black. If a
+   derived colour is ever needed here, check the built CSS in
+   .next/static/chunks/*.css before believing it. */
+.subrecord-grid {
+  --color-slate-300: rgb(15 23 42 / 0.26);
+}
+
+.dark .subrecord-grid {
+  --color-slate-300: rgb(255 255 255 / 0.20);
 }

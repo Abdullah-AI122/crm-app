@@ -3,6 +3,13 @@ import env from "@/config/env";
 import { getToken } from "@/lib/auth";
 
 /**
+ * Every mutation that the server audits must carry this tag, otherwise the
+ * activity feed keeps serving a cached page and only a hard refresh shows the
+ * new entries. It is a bare LIST id so one tag covers every workspace.
+ */
+export const ACTIVITY_TAG = { type: "Activity" as const, id: "LIST" };
+
+/**
  * The single shared cache instance. Every resource file injects its endpoints
  * here, so two components asking for the same data share one request.
  */
@@ -27,7 +34,11 @@ export const baseApi = createApi({
         "Collection",
         "Column",
         "Record",
-        "RecordValue"
+        "RecordValue",
+        "Amendment",
+        "Activity",
+        "Automation",
+        "ModuleAccess"
     ],
 
     keepUnusedDataFor: 120,        // seconds a cache entry survives with no subscriber

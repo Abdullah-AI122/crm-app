@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { HiOutlinePlus } from "react-icons/hi2";
 import { getUser } from "@/lib/auth";
+import { presenceLabel } from "@/lib/presence";
+import PresenceDot from "../helpers/presenceDot";
+import Tooltip from "../helpers/tooltip";
 
 import userAsset from "@/app/assets/user.png";
 
@@ -14,6 +17,8 @@ export interface MemberUser {
     email?: string;
     avatar?: string;
     profileImage?: string;
+    /** Server-derived presence — see backend getWorkspaceMembers. */
+    presence?: string;
 }
 
 export interface Member {
@@ -60,11 +65,15 @@ export default function MembersButton({
     return (
         <div className="inline-flex items-center overflow-hidden rounded-lg border border-slate-300 bg-card shadow-sm">
             {hasMembers && (
+                <Tooltip
+                    label={`View all ${otherMembers.length + 1} members`}
+                    side="bottom"
+                >
                 <button
                     type="button"
                     onClick={() => router.push("/members")}
+                    aria-label="View all members"
                     className="flex items-center gap-1.5 border-r border-slate-300 px-3 py-1.5 transition hover:bg-slate-50 cursor-pointer"
-                    title="View all members"
                 >
                     <div className="flex items-center -space-x-2">
                         {visibleMembers.map((member: any, index: number) => {
@@ -88,18 +97,33 @@ export default function MembersButton({
                                 member.profileImage ||
                                 userAsset.src;
 
+                            const presence = rawUser?.presence;
+
                             return (
-                                <div
+                                <Tooltip
                                     key={member._id || index}
-                                    title={memberName}
-                                    className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-white bg-slate-200 shadow-sm"
+                                    label={
+                                        presence
+                                            ? `${memberName} — ${presenceLabel(presence)}`
+                                            : memberName
+                                    }
                                 >
-                                    <img
-                                        src={avatar}
-                                        alt={memberName}
-                                        className="h-full w-full object-cover"
-                                    />
+                                <div className="relative shrink-0">
+                                    <div className="h-7 w-7 overflow-hidden rounded-full border border-white bg-slate-200 shadow-sm">
+                                        <img
+                                            src={avatar}
+                                            alt={memberName}
+                                            className="h-full w-full object-cover"
+                                        />
+                                    </div>
+
+                                    {presence && (
+                                        <span className="pointer-events-none absolute -bottom-px -right-px">
+                                            <PresenceDot status={presence} size={9} ring={1.5} />
+                                        </span>
+                                    )}
                                 </div>
+                                </Tooltip>
                             );
                         })}
 
@@ -110,17 +134,22 @@ export default function MembersButton({
                         )}
                     </div>
                 </button>
+                </Tooltip>
             )}
 
-            <button
-                type="button"
-                onClick={onInvite}
-                title="Invite Member"
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 font-dmsans text-xs font-medium text-[#FB923C] transition hover:text-[#EA580C] cursor-pointer"
-            >
-                <HiOutlinePlus size={15} strokeWidth={2.5} />
-                <span>Invite</span>
-            </button>
+            {/* `title` replaced by <Tooltip>: it themes, it opens faster, and
+                it appears on keyboard focus, which the native one never does. */}
+            <Tooltip label="Invite member" side="bottom">
+                <button
+                    type="button"
+                    onClick={onInvite}
+                    aria-label="Invite member"
+                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 font-dmsans text-xs font-medium text-[#FB923C] transition hover:text-[#EA580C] cursor-pointer"
+                >
+                    <HiOutlinePlus size={15} strokeWidth={2.5} />
+                    <span>Invite</span>
+                </button>
+            </Tooltip>
         </div>
     );
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { HiOutlineUserPlus, HiOutlineMagnifyingGlass, HiCheck, HiOutlineXMark } from "react-icons/hi2";
 import { useGetMembersQuery } from "@/store/api/members.api";
+import PresenceDot from "./presenceDot";
 import type { Column, Member, MemberUser, RecordItem, RecordValue } from "@/store/types";
 
 /** A member row, a raw user, or either shape wrapped in `{ user }`. */
@@ -64,16 +65,20 @@ export function PersonAvatar({
     member,
     size = 26,
     ring = true,
+    showPresence = false,
 }: {
     member: MemberLike;
     size?: number;
     ring?: boolean;
+    /** Off by default — only the rosters that need it pay for the extra badge. */
+    showPresence?: boolean;
 }) {
     const user = member?.user ?? member;
     const name = memberName(member);
     const src = user?.avatar || user?.profileImage;
+    const presence = showPresence ? user?.presence : undefined;
 
-    return (
+    const avatar = (
         <span
             title={name}
             className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full ${ring ? "ring-2 ring-card" : ""}`}
@@ -93,6 +98,22 @@ export function PersonAvatar({
                     {initialsOf(name)}
                 </span>
             )}
+        </span>
+    );
+
+    if (!presence) return avatar;
+
+    // The badge sits outside the avatar span, which clips its children.
+    return (
+        <span className="relative inline-flex shrink-0">
+            {avatar}
+            <span className="pointer-events-none absolute -bottom-px -right-px">
+                <PresenceDot
+                    status={presence}
+                    size={Math.max(8, Math.round(size * 0.34))}
+                    ring={size >= 24 ? 2 : 1.5}
+                />
+            </span>
         </span>
     );
 }
@@ -215,7 +236,7 @@ export default function PersonCell({
                 {selectedMembers.length > 0 && (
                     <span className="flex items-center -space-x-2">
                         {visible.map((m) => (
-                            <PersonAvatar key={memberUserId(m)} member={m} />
+                            <PersonAvatar key={memberUserId(m)} member={m} showPresence />
                         ))}
                         {overflow > 0 && (
                             <span className="inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-control text-[10px] font-semibold text-muted ring-2 ring-card">
@@ -289,7 +310,7 @@ export default function PersonCell({
                                     onClick={() => togglePerson(id)}
                                     className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition cursor-pointer ${isSelected ? "bg-control/60" : "hover:bg-control/40"}`}
                                 >
-                                    <PersonAvatar member={m} size={26} ring={false} />
+                                    <PersonAvatar member={m} size={26} ring={false} showPresence />
                                     <span className="min-w-0 flex-1">
                                         <span className="block truncate text-xs font-medium text-foreground">
                                             {memberName(m)}

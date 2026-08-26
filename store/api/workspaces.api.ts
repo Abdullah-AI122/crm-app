@@ -27,13 +27,13 @@ export const workspacesApi = baseApi.injectEndpoints({
             providesTags: (_result, _error, id) => [{ type: "Workspace", id }]
         }),
 
-        createWorkspace: build.mutation<Workspace, { name: string }>({
+        createWorkspace: build.mutation<Workspace, { name: string; icon?: string }>({
             query: (body) => ({ url: "/workspaces", method: "POST", body }),
             transformResponse: (response: { workspace: Workspace }) => response.workspace,
             invalidatesTags: [{ type: "Workspace", id: "LIST" }]
         }),
 
-        updateWorkspace: build.mutation<Workspace, { id: string; name?: string; description?: string }>({
+        updateWorkspace: build.mutation<Workspace, { id: string; name?: string; description?: string; icon?: string }>({
             query: ({ id, ...body }) => ({ url: `/workspaces/${id}`, method: "PUT", body }),
             transformResponse: (response: { workspace: Workspace }) => response.workspace,
             invalidatesTags: (_result, _error, { id }) => [

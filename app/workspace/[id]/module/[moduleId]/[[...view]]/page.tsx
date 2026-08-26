@@ -12,6 +12,7 @@ import {
 } from "@/store/api/collections.api";
 import {
     useGetColumnsQuery,
+    useGetSubColumnsQuery,
     useCreateColumnMutation,
     useUpdateColumnMutation,
     useDeleteColumnMutation,
@@ -19,15 +20,18 @@ import {
 } from "@/store/api/columns.api";
 import {
     useCreateRecordMutation,
+    useCreateSubRecordMutation,
     useUpdateRecordMutation,
     useDeleteRecordMutation
 } from "@/store/api/records.api";
 import {
     useCreateRecordValueMutation,
-    useUpdateRecordValueMutation
+    useUpdateRecordValueMutation,
+    recordValuesApi
 } from "@/store/api/recordValues.api";
 import { useGetMembersQuery } from "@/store/api/members.api";
-import { useModuleRecords, refetchRecords, refetchRecordValues } from "@/store/useModuleData";
+import { useModuleRecords, useSubRecordsFor, refetchRecords } from "@/store/useModuleData";
+import { useAutomationRuns } from "@/store/useAutomationRuns";
 import { RiCheckLine, RiDeleteBin5Line } from "react-icons/ri";
 import { RxDragHandleDots2 } from "react-icons/rx";
 import { RiDeleteBin7Fill } from "react-icons/ri";
@@ -39,22 +43,31 @@ import { Button } from "@heroui/react";
 import { AiOutlineLoading3Quarters } from "react-icons/ai";
 import { FaChevronDown } from "react-icons/fa";
 import { VscFileSubmodule } from "react-icons/vsc";
-import { HiOutlinePaperClip, HiOutlineEye, HiOutlineDocumentText, HiOutlineArrowDownTray, HiOutlineXMark, HiCheck } from "react-icons/hi2";
+import { HiOutlinePaperClip, HiOutlineEye, HiOutlineDocumentText, HiOutlineArrowDownTray, HiOutlineXMark, HiCheck, HiOutlineChatBubbleLeftEllipsis } from "react-icons/hi2";
 import PersonCell, { PersonAvatar, parsePeopleValue, memberUserId } from "@/components/ui/helpers/personCell";
 import RatingCell, { StarRow, parseRating, formatRating } from "@/components/ui/helpers/ratingCell";
 import FileUploadModal from "@/components/ui/modals/fileUploadModal";
 import ProfileDropdown from "@/components/Profile";
 import { logout } from "@/lib/auth";
 import Sidebar from "@/components/Sidebar";
+import AiSidebar from "@/components/AiSidebar";
 import CreateCollectionModal from "@/components/ui/modals/createCollectionModal";
 import RenameColumnModal from "@/components/ui/modals/renameColumnModal";
-import AddColumnModal from "@/components/ui/modals/addColumnModal";
+import AddColumnModal, { type ColumnSettings } from "@/components/ui/modals/addColumnModal";
+import RelationCell from "@/components/ui/helpers/relationCell";
+import SubRecordTable from "@/components/SubRecordTable";
+import AddSubRecordModal from "@/components/ui/modals/addSubRecordModal";
+import { ChevronRight, Link2 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
+import { MIRROR_TINT, mirrorCellStyle, mirrorHeaderStyle } from "@/lib/mirror";
+import { useGetModuleReferencesQuery } from "@/store/api/references.api";
 import SelectedRecordsModal from "@/components/ui/modals/selectedRecordsModal";
+import RecordAmendmentsPanel from "@/components/RecordAmendmentsPanel";
 import DeleteCollectionModal from "@/components/ui/modals/deleteCollectionModal";
 import EditCollectionModal from "@/components/ui/modals/editCollectionModal";
 import CollectionMenu from "@/components/ui/menu/collectionMenu";
 
-import type { Collection } from "@/store/types";
+import type { Collection, RecordItem } from "@/store/types";
 
 function ResizeHandle({ onResize }: { onResize: (delta: number) => void }) {
     const startX = useRef(0);
@@ -168,6 +181,41 @@ const setTiltedDragImage = (e: React.DragEvent, source: HTMLElement, accent: str
  */
 const byUserOrder = (a: Collection, b: Collection) =>
     (a.position ?? 0) - (b.position ?? 0) || a._id.localeCompare(b._id);
+
+/**
+ * Deep links to an open amendments panel.
+ *
+ * The board lives at an OPTIONAL CATCH-ALL (`[[...view]]/page.tsx`), so
+ * /workspace/w/module/m and /workspace/w/module/m/Record/<id> are the SAME page
+ * component — opening a panel is a URL change, not a navigation, and the board
+ * is never torn down and refetched to show one. A pasted or refreshed deep link
+ * still lands on a real route, which is the whole point of being able to copy it.
+ */
+const RECORD_SEGMENT = "Record";
+
+const moduleBasePath = (workspaceId: string, moduleId: string) =>
+    `/workspace/${workspaceId}/module/${moduleId}`;
+
+const recordPath = (workspaceId: string, moduleId: string, recordId: string) =>
+    `${moduleBasePath(workspaceId, moduleId)}/${RECORD_SEGMENT}/${recordId}`;
+
+/**
+ * The record id in a path, or null.
+ *
+ * A catch-all matches ANY tail, so the shape is validated rather than trusted:
+ * anything that is not `/Record/<24-hex>` is ignored and the board simply opens
+ * with no panel. A link to a record that has since been deleted degrades the
+ * same way — friendlier than a 404 for something a colleague pasted.
+ */
+const recordIdFromPath = (pathname: string): string | null => {
+    const parts = pathname.split("/").filter(Boolean);
+    const at = parts.indexOf(RECORD_SEGMENT);
+
+    if (at === -1) return null;
+
+    const id = parts[at + 1];
+    return id && /^[0-9a-f]{24}$/i.test(id) ? id : null;
+};
 
 const getRecordCollectionId = (record: any) => {
     if (!record) return "";
@@ -290,7 +338,7 @@ function FilePreviewModal({ open, setOpen, file, onChangeFile, onRemoveFile }: F
 }
 
 // ── Record Name Cell (frozen first column) ─────────────────────────────────
-const RecordNameCell = ({ record, color, width, selected, onSave }: any) => {
+const RecordNameCell = ({ record, color, width, selected, onSave, expanded, onToggleExpand, onOpenAmendments }: any) => {
     const [editing, setEditing] = useState(false);
     const [value, setValue] = useState(record.name);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -322,6 +370,48 @@ const RecordNameCell = ({ record, color, width, selected, onSave }: any) => {
             style={{ width, borderLeft: `3px solid ${color}` }}
         >
             <span className="text-xs cursor-grab active:cursor-grabbing shrink-0 text-slate-500"><CgMenuGridO /></span>
+
+            {/* Expand toggle. Always present, never conditional on the count —
+                a row with no sub-records is where you add the first one, and a
+                control that appears only once it is needed cannot be found. */}
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleExpand(record._id);
+                }}
+                title={expanded ? "Hide sub-records" : "Show sub-records"}
+                className={`shrink-0 flex items-center gap-0.5 rounded px-0.5 py-0.5 transition cursor-pointer hover:bg-slate-200/70 ${expanded ? "text-slate-700" : "text-slate-400"}`}
+            >
+                <ChevronRight
+                    className="h-3.5 w-3.5 transition-transform duration-200"
+                    style={{ transform: expanded ? "rotate(90deg)" : "none" }}
+                />
+                {record.subRecordCount > 0 && (
+                    <span className="font-google-sans text-[10px] font-bold tabular-nums">
+                        {record.subRecordCount}
+                    </span>
+                )}
+            </button>
+
+            {/* Amendments bubble. Shown on every row for the same reason as the
+                expand toggle — an empty record is where the first amendment gets
+                written, and a control that only appears once it has content
+                cannot be found. The count rides along on the record list. */}
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenAmendments(record);
+                }}
+                title={record.amendmentCount ? `${record.amendmentCount} amendment${record.amendmentCount === 1 ? "" : "s"}` : "Write an amendment"}
+                className={`shrink-0 flex items-center gap-0.5 rounded px-1 py-0.5 transition cursor-pointer hover:bg-slate-200/70 ${record.amendmentCount ? "text-accent" : "text-slate-400"}`}
+            >
+                <HiOutlineChatBubbleLeftEllipsis className="h-3.5 w-3.5" />
+                {record.amendmentCount > 0 && (
+                    <span className="font-google-sans text-[10px] font-bold tabular-nums">
+                        {record.amendmentCount}
+                    </span>
+                )}
+            </button>
             {editing ? (
                 <input
                     ref={inputRef}
@@ -466,7 +556,7 @@ function TimelinePickerPopover({ open, setOpen, startDate, endDate, onSave }: an
 }
 
 // ── Cell component ─────────────────────────────────────────────────────────
-const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdateStatusOptions, width, workspaceId }: any) => {
+const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdateStatusOptions, width, workspaceId, references }: any) => {
     const [editing, setEditing] = useState(false);
     const [value, setValue] = useState(recordValue?.value ?? "");
     const inputRef = useRef<HTMLInputElement>(null);
@@ -876,6 +966,41 @@ const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdate
         );
     }
 
+    // Relation — which records on another module this row points at
+    if (column.type === "relation") {
+        return (
+            <RelationCell
+                record={record}
+                column={column}
+                recordValue={recordValue}
+                resolved={references?.[column._id]}
+                width={width}
+                onSave={onSave}
+            />
+        );
+    }
+
+    /**
+     * A column left over from when mirroring was its own type. Still resolved
+     * server-side, so it keeps showing its value; new ones are relations.
+     */
+    if (column.type === "reference") {
+        return (
+            <div
+                className="flex h-10 shrink-0 items-center border-r border-slate-300 px-3 font-dmsans"
+                style={{ width, ...mirrorCellStyle }}
+                title={references?.[column._id]?.items
+                    ?.map((item: { name: string; value: string }) =>
+                        `${item.name}: ${item.value || "-"}`)
+                    .join(String.fromCharCode(10))}
+            >
+                <span className="w-full truncate text-xs text-slate-600">
+                    {references?.[column._id]?.display ?? ""}
+                </span>
+            </div>
+        );
+    }
+
     // Rating column type — collapsed stars in the cell, large half-star picker on click
     if (column.type === "rating") {
         return (
@@ -1089,6 +1214,8 @@ const Cell = ({ record, column, recordValue, onSave, onAddStatusOption, onUpdate
 interface ColMenuState {
     columnId: string;
     columnName: string;
+    /** Which grid the column belongs to — rename/delete patch different lists. */
+    scope: "record" | "subrecord";
     x: number;
     y: number;
 }
@@ -1139,9 +1266,30 @@ export default function ModulePage() {
     // Workspace roster — shared with every person cell through the same cache entry
     const { data: workspaceMembers = [] } = useGetMembersQuery(workspaceId, { skip: !workspaceId });
 
+    /**
+     * Reference columns hold no value of their own — the server resolves them
+     * for the whole board in one request, and a cell write anywhere marks this
+     * stale through the RecordValue tag.
+     */
+    const { data: moduleReferences = {} } = useGetModuleReferencesQuery(moduleId, {
+        skip: !moduleId,
+        // A mirror is derived from another module's values, which may have been
+        // edited on that board since this one was last open. The shared 60s
+        // freshness window is wrong for that: always re-resolve on arrival.
+        refetchOnMountOrArgChange: true,
+    });
+
     // Column state — served from the shared cache
     const { data: columnsData = [] } = useGetColumnsQuery(moduleId, { skip: !moduleId });
     const columns = columnsData as any[];
+
+    /**
+     * Sub-records are shown against their OWN columns, not the board's. One list
+     * per module, shared by every expanded row — which is why it is fetched here
+     * rather than inside each SubRecordTable.
+     */
+    const { data: subColumnsData = [] } = useGetSubColumnsQuery(moduleId, { skip: !moduleId });
+    const subColumns = subColumnsData as any[];
     const [createColumnMutation, { isLoading: creatingColumn }] = useCreateColumnMutation();
     const [updateColumnMutation] = useUpdateColumnMutation();
     const [deleteColumnMutation] = useDeleteColumnMutation();
@@ -1149,6 +1297,11 @@ export default function ModulePage() {
     const [showColumnModal, setShowColumnModal] = useState(false);
     const [columnName, setColumnName] = useState("");
     const [columnType, setColumnType] = useState("text");
+    // Which grid the Add Column modal is currently filling in.
+    const [columnScope, setColumnScope] = useState<"record" | "subrecord">("record");
+
+    // Relation and reference columns need more than a name and a type.
+    const [columnSettings, setColumnSettings] = useState<ColumnSettings>({});
 
     // Column widths (resizable)
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ recordName: 280 });
@@ -1168,7 +1321,9 @@ export default function ModulePage() {
 
     // Column rename/context menu
     const [colMenu, setColMenu] = useState<ColMenuState | null>(null);
-    const [renameModal, setRenameModal] = useState<{ id: string; name: string } | null>(null);
+    const [renameModal, setRenameModal] = useState<
+        { id: string; name: string; scope: "record" | "subrecord" } | null
+    >(null);
     const [renameValue, setRenameValue] = useState("");
     const [copied, setCopied] = useState(false);
     const [renamingColumn, setRenamingColumn] = useState(false);
@@ -1187,11 +1342,106 @@ export default function ModulePage() {
         recordValues: any[];
     };
 
+    // An automation can move a row or rewrite a cell after the write that
+    // triggered it has already returned — this announces that and refreshes the
+    // board, so nobody has to reload to see what the engine did.
+    useAutomationRuns(workspaceId, moduleId);
+
     const [createRecordMutation, { isLoading: creatingRecord }] = useCreateRecordMutation();
     const [updateRecordMutation] = useUpdateRecordMutation();
     const [deleteRecordMutation] = useDeleteRecordMutation();
     const [createRecordValueMutation] = useCreateRecordValueMutation();
     const [updateRecordValueMutation] = useUpdateRecordValueMutation();
+
+    const [createSubRecordMutation, { isLoading: creatingSubRecord }] =
+        useCreateSubRecordMutation();
+
+    // Which record the Add Sub-record modal is adding under, and the name typed
+    // into it. Null closes the modal.
+    const [subRecordModal, setSubRecordModal] = useState<RecordItem | null>(null);
+    const [subRecordName, setSubRecordName] = useState("");
+
+    // Which rows have their sub-records open. Session state on purpose: an
+    // expanded row is where you are working right now, not a board setting.
+    const [expandedRecordIds, setExpandedRecordIds] = useState<Set<string>>(new Set());
+
+    const toggleExpanded = useCallback((recordId: string) => {
+        setExpandedRecordIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(recordId)) next.delete(recordId);
+            else next.add(recordId);
+            return next;
+        });
+    }, []);
+
+    /**
+     * Which record's amendments panel is open. The ID is held rather than the
+     * row itself so a rename or a new amendment re-reads from the live list —
+     * a captured object would leave the header showing the old name.
+     *
+     * Seeded from the URL in a lazy initialiser, not an effect, so a pasted
+     * /Record/<id> link opens the panel on the first render with no flash and
+     * no setState-in-effect.
+     */
+    const [amendmentsRecordId, setAmendmentsRecordId] = useState<string | null>(() =>
+        typeof window === "undefined" ? null : recordIdFromPath(window.location.pathname)
+    );
+
+    /**
+     * Sub-records already loaded for the expanded rows. Read-only — each open
+     * SubRecordTable owns the subscription — and only so the panel below can
+     * resolve a row that lives in one of those blocks rather than in the grid.
+     */
+    const openSubRecords = useSubRecordsFor(Array.from(expandedRecordIds));
+
+    /**
+     * Null until the row arrives, so a cold deep link simply opens the panel
+     * once the record it names has loaded. A sub-record resolves the same way,
+     * which is what lets one carry amendments at all.
+     */
+    const amendmentsRecord = amendmentsRecordId
+        ? records.find((r) => r._id === amendmentsRecordId) ??
+          openSubRecords.find((r) => r._id === amendmentsRecordId) ??
+          null
+        : null;
+
+    /**
+     * Back and Forward have to move the panel with them, since opening one
+     * pushed a history entry. Reading location here rather than trusting the
+     * event keeps this correct however the entry was reached.
+     */
+    useEffect(() => {
+        const onPopState = () => {
+            setAmendmentsRecordId(recordIdFromPath(window.location.pathname));
+        };
+
+        window.addEventListener("popstate", onPopState);
+        return () => window.removeEventListener("popstate", onPopState);
+    }, []);
+
+    const openAmendments = useCallback(
+        (record: { _id: string }) => {
+            setAmendmentsRecordId(record._id);
+
+            // pushState, so Back closes the panel — opening one is a step the
+            // user should be able to undo. Next 16 supports the native History
+            // API and keeps usePathname in sync with it.
+            window.history.pushState(
+                null,
+                "",
+                recordPath(workspaceId, moduleId, record._id)
+            );
+        },
+        [workspaceId, moduleId]
+    );
+
+    const closeAmendments = useCallback(() => {
+        setAmendmentsRecordId(null);
+
+        // replaceState on the way out, NOT push: stacking a second entry would
+        // make Back re-open the panel the user just dismissed.
+        window.history.replaceState(null, "", moduleBasePath(workspaceId, moduleId));
+    }, [workspaceId, moduleId]);
 
     const [showRecordModal, setShowRecordModal] = useState(false);
     const [recordName, setRecordName] = useState("");
@@ -1335,9 +1585,19 @@ export default function ModulePage() {
     const createColumn = async () => {
         if (!columnName.trim()) return;
         try {
-            await createColumnMutation({ moduleId, name: columnName, type: columnType }).unwrap();
+            await createColumnMutation({
+                moduleId,
+                name: columnName,
+                type: columnType,
+                // Only relation and reference carry configuration; sending an
+                // empty object on a text column would just be noise.
+                settings: Object.keys(columnSettings).length ? columnSettings : undefined,
+                scope: columnScope,
+            }).unwrap();
             setColumnName("");
             setColumnType("text");
+            setColumnSettings({});
+            setColumnScope("record");
             setShowColumnModal(false);
         } catch (e) { console.log(e); }
     };
@@ -1350,6 +1610,9 @@ export default function ModulePage() {
                 columnId: column._id,
                 moduleId,
                 statusOptions: updated,
+                // The optimistic patch has to land in the list this column is
+                // actually served from.
+                scope: column.scope === "subrecord" ? "subrecord" : "record",
             }).unwrap();
         } catch (e) { console.log(e); }
     };
@@ -1363,7 +1626,7 @@ export default function ModulePage() {
     // ── Rename Column ─────────────────────────────────────────────────────
     const openRenameModal = (col: any) => {
         setColMenu(null);
-        setRenameModal({ id: col._id, name: col.name });
+        setRenameModal({ id: col._id, name: col.name, scope: col.scope ?? "record" });
         setRenameValue(col.name);
         setCopied(false);
     };
@@ -1376,23 +1639,31 @@ export default function ModulePage() {
                 columnId: renameModal.id,
                 moduleId,
                 name: renameValue,
+                scope: renameModal.scope,
             }).unwrap();
             setRenameModal(null);
         } catch (e) { console.log(e); } finally { setRenamingColumn(false); }
     };
 
     // ── Delete Column ─────────────────────────────────────────────────────
-    const deleteColumn = async (columnId: string) => {
+    const deleteColumn = async (columnId: string, scope: "record" | "subrecord" = "record") => {
         setColMenu(null);
         if (!confirm("Delete this column?")) return;
         try {
             setDeletingColumnId(columnId);
-            await deleteColumnMutation({ columnId, moduleId }).unwrap();
-            // The removed cells are gone server-side; refresh each row.
-            records.forEach((record) => refetchRecordValues(record._id));
+            await deleteColumnMutation({ columnId, moduleId, scope }).unwrap();
+            /**
+             * The removed cells are gone server-side, so every cached row is now
+             * carrying a value for a column that no longer exists. Invalidating
+             * the tag TYPE refreshes exactly the rows something is subscribed to
+             * — which is the board's rows plus any open sub-record table, and
+             * the page cannot name the latter.
+             */
+            dispatch(recordValuesApi.util.invalidateTags(["RecordValue"]));
         } catch (e) { console.log(e); } finally { setDeletingColumnId(null); }
     };
 
+    /** Resolves true when the value reached the server, false when it did not. */
     const saveRecordValue = async (record: any, column: any, value: any, existingRecordValue: any) => {
         try {
             if (existingRecordValue) {
@@ -1412,7 +1683,24 @@ export default function ModulePage() {
                     value,
                 }).unwrap();
             }
-        } catch (e) { console.log(e); }
+
+            return true;
+        } catch (error) {
+            /**
+             * This used to be a console.log. A failed write then looked
+             * successful — the optimistic patch kept showing the new value until
+             * a refresh threw it away, which is exactly how a broken cell hides.
+             */
+            const message =
+                (error as { data?: { message?: string } })?.data?.message ??
+                "That change could not be saved.";
+
+            toast.error(message, `${column?.name ?? "Cell"} on ${record?.name ?? "this record"}`);
+
+            // Reported rather than thrown: a cell that does not await this must
+            // not produce an unhandled rejection.
+            return false;
+        }
     };
 
     // ── Rename Record (inline edit, auto-save) ──────────────────────────────
@@ -1424,6 +1712,62 @@ export default function ModulePage() {
                 name,
             }).unwrap();
         } catch (e) { console.log(e); }
+    };
+
+    // ── Sub-records ────────────────────────────────────────────────────────
+    /**
+     * The three writes a sub-record needs. Each one carries the parent, because
+     * a sub-record lives in getSubRecords(parent) rather than in the collection
+     * list every other row is patched through.
+     */
+    const createSubRecord = async () => {
+        const parent = subRecordModal;
+        const name = subRecordName.trim();
+        if (!parent || !name) return;
+
+        try {
+            await createSubRecordMutation({
+                parentRecordId: parent._id,
+                name,
+                collectionId: getRecordCollectionId(parent),
+                moduleId,
+            }).unwrap();
+            setSubRecordName("");
+            setSubRecordModal(null);
+        } catch (error) {
+            toast.error(
+                (error as { data?: { message?: string } })?.data?.message ??
+                "That sub-record could not be created.",
+                `Under ${parent?.name ?? "this record"}`
+            );
+        }
+    };
+
+    const renameSubRecord = async (subRecord: any, name: string) => {
+        try {
+            await updateRecordMutation({
+                recordId: subRecord._id,
+                collectionId: getRecordCollectionId(subRecord),
+                parentRecordId: String(subRecord.parentRecord ?? ""),
+                name,
+            }).unwrap();
+        } catch (e) { console.log(e); }
+    };
+
+    const deleteSubRecord = async (subRecord: any) => {
+        try {
+            await deleteRecordMutation({
+                recordId: subRecord._id,
+                collectionId: getRecordCollectionId(subRecord),
+                parentRecordId: String(subRecord.parentRecord ?? ""),
+            }).unwrap();
+        } catch (error) {
+            toast.error(
+                (error as { data?: { message?: string } })?.data?.message ??
+                "That sub-record could not be deleted.",
+                subRecord?.name
+            );
+        }
     };
 
     // ── Create Record ──────────────────────────────────────────────────────
@@ -1724,16 +2068,41 @@ export default function ModulePage() {
                                 className="flex-1 overflow-x-auto overflow-y-auto w-full [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-zinc-400 hover:[&::-webkit-scrollbar-thumb]:bg-zinc-600 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-zinc-100 pr-2"
                             >
                                 {loading ? (
-                                    <div className="space-y-4">
-                                        {[1, 2, 3].map((i) => (
-                                            <div key={i} className="h-32 rounded bg-card/5 shimmer" />
+                                    /* animate-pulse, not .shimmer — .shimmer is a white
+                                       gradient and is invisible on light themes (§11.6). */
+                                    <div className="mr-8 mt-2 space-y-4">
+                                        {[0, 1, 2].map((i) => (
+                                            <div
+                                                key={i}
+                                                className="h-32 rounded-xl bg-control animate-pulse"
+                                                style={{ animationDelay: `${i * 120}ms` }}
+                                            />
                                         ))}
                                     </div>
                                 ) : collections.length === 0 ? (
-                                    <div className="border border-dashed border-slate-500 rounded p-16 text-center flex items-center justify-center flex-col">
-                                        <div className="text-4xl mb-4 inline-block "><VscFileSubmodule /></div>
-                                        <h2 className="text-lg font-semibold mb-1 font-google-sans text-foreground ">Empty Module</h2>
-                                        <p className="mb-5 text-sm font-google-sans text-foreground">Create your first Collection to start organizing work</p>
+                                    /* Empty state — all tokens, so it follows the theme
+                                       picker instead of assuming a dark board. */
+                                    <div className="mr-8 mt-2 rounded-xl border border-dashed border-slate-300 bg-card/50 px-6 py-16 text-center font-dmsans">
+                                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-accent/10 text-accent">
+                                            <VscFileSubmodule size={24} />
+                                        </div>
+
+                                        <h2 className="text-lg font-semibold text-slate-900">
+                                            This module is empty
+                                        </h2>
+
+                                        <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
+                                            Collections group your records. Create the first one to
+                                            start organizing work.
+                                        </p>
+
+                                        <button
+                                            onClick={openCollectionModal}
+                                            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-hover cursor-pointer"
+                                        >
+                                            <IoAddOutline size={17} />
+                                            New Collection
+                                        </button>
                                     </div>
                                 ) : (
                                     <div className="space-y-4 min-w-max">
@@ -1875,36 +2244,61 @@ export default function ModulePage() {
                                                                         onContextMenu={(e) => {
                                                                             e.preventDefault();
                                                                             e.stopPropagation();
-                                                                            setColMenu({ columnId: column._id, columnName: column.name, x: e.clientX, y: e.clientY });
+                                                                            setColMenu({ columnId: column._id, columnName: column.name, scope: "record", x: e.clientX, y: e.clientY });
                                                                         }}
-                                                                        className={`relative shrink-0 px-3 py-2.5 border-t border-r border-slate-300 tracking-wider font-google-sans flex items-center justify-center cursor-grab active:cursor-grabbing bg-card transition select-none text-[13px] ${draggingColumnId === column._id ? "opacity-40 ring-2 ring-accent ring-inset" : ""}`}
-                                                                        style={{ width: getColWidth(column._id) }}
-                                                                        title="Right-click to rename / delete"
+                                                                        className={`relative shrink-0 px-3 py-2.5 border-t border-r border-slate-300 tracking-wider font-google-sans flex items-center justify-center gap-1.5 cursor-grab active:cursor-grabbing bg-card transition select-none text-[13px] ${draggingColumnId === column._id ? "opacity-40 ring-2 ring-accent ring-inset" : ""}`}
+                                                                        style={{
+                                                                            width: getColWidth(column._id),
+                                                                            // A mirrored column is tinted end to end, so the
+                                                                            // header explains the tint on every row below it.
+                                                                            ...(column.settings?.displayField ? mirrorHeaderStyle : {}),
+                                                                        }}
+                                                                        title={
+                                                                            column.settings?.displayField
+                                                                                ? "Mirrored from another module — read-only"
+                                                                                : "Right-click to rename / delete"
+                                                                        }
                                                                     >
                                                                         {deletingColumnId === column._id ? (
                                                                             <span className="text-red-300">…</span>
                                                                         ) : (
-                                                                            <span className="truncate">{column.name}</span>
+                                                                            <>
+                                                                                {column.settings?.displayField && (
+                                                                                    <Link2
+                                                                                        className="h-3 w-3 shrink-0"
+                                                                                        style={{ color: MIRROR_TINT }}
+                                                                                    />
+                                                                                )}
+                                                                                <span className="truncate">{column.name}</span>
+                                                                            </>
                                                                         )}
                                                                         <ResizeHandle onResize={(d) => resizeColumn(column._id, d)} />
                                                                     </div>
                                                                 ))}
 
                                                                 {/* Add column button at end */}
-                                                                <div className="w-[120px] shrink-0 px-3 py-2.5 flex items-center justify-center border-t border-r border-slate-300 rounded-tr-lg bg-card">
+                                                                <div className="w-[120px] shrink-0 px-3 py-2.5 flex items-center justify-center border-t border-slate-300 bg-card">
                                                                     <button
-                                                                        onClick={() => setShowColumnModal(true)}
+                                                                        onClick={() => {
+                                                                            setColumnScope("record");
+                                                                            setShowColumnModal(true);
+                                                                        }}
                                                                         className="text-xs text-zinc-500 font-google-sans font-bold transition whitespace-nowrap cursor-pointer"
                                                                     >
                                                                         + Column
                                                                     </button>
                                                                 </div>
+
+                                                                {/* Takes up whatever the widest row in this collection leaves
+                                                                    over, so the button keeps its own size instead of being
+                                                                    stretched across the slack. */}
+                                                                <div className="grow border-t border-r border-slate-300 rounded-tr-lg bg-card" />
                                                             </div>
 
                                                             {/* Record rows */}
                                                             {collectionRecords.map((record) => (
+                                                                <div key={record._id} className="flex flex-col">
                                                                 <div
-                                                                    key={record._id}
                                                                     draggable
                                                                     onDragStart={(e) => {
                                                                         // Stops the collection header's dragstart from also arming a
@@ -1944,6 +2338,9 @@ export default function ModulePage() {
                                                                         width={getColWidth("recordName", 280)}
                                                                         selected={selectedRecordIds.has(record._id)}
                                                                         onSave={renameRecord}
+                                                                        expanded={expandedRecordIds.has(record._id)}
+                                                                        onToggleExpand={toggleExpanded}
+                                                                        onOpenAmendments={openAmendments}
                                                                     />
 
                                                                     {/* Cells */}
@@ -1959,6 +2356,7 @@ export default function ModulePage() {
                                                                                 recordValue={rv}
                                                                                 width={getColWidth(column._id)}
                                                                                 workspaceId={workspaceId}
+                                                                                references={moduleReferences[record._id]}
                                                                                 onSave={saveRecordValue}
                                                                                 onAddStatusOption={addStatusOption}
                                                                                 onUpdateStatusOptions={updateColumnStatusOptions}
@@ -1966,9 +2364,62 @@ export default function ModulePage() {
                                                                         );
                                                                     })}
 
-                                                                    {/* Trailing spacer */}
-                                                                    <div className="w-[120px] shrink-0 border-r border-slate-300" />
+                                                                    {/* Trailing spacer. Grows rather than sitting at a fixed
+                                                                        120px: a sub-record grid with MORE columns than the
+                                                                        board makes the collection wider than this row, and a
+                                                                        fixed tail left the row ending in mid-air. */}
+                                                                    <div className="min-w-[120px] grow border-r border-slate-300" />
                                                                 </div>
+
+                                                                {/* Sub-records — its own grid, its own columns, mounted
+                                                                    only while the row is open so nothing is fetched for
+                                                                    a collapsed one. */}
+                                                                {expandedRecordIds.has(record._id) && (
+                                                                    <SubRecordTable
+                                                                        record={record}
+                                                                        color={color}
+                                                                        nameWidth={getColWidth("recordName", 280)}
+                                                                        columns={subColumns}
+                                                                        getColWidth={getColWidth}
+                                                                        onAddColumn={() => {
+                                                                            setColumnScope("subrecord");
+                                                                            setShowColumnModal(true);
+                                                                        }}
+                                                                        onColumnMenu={(e, column) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            setColMenu({
+                                                                                columnId: column._id,
+                                                                                columnName: column.name,
+                                                                                scope: "subrecord",
+                                                                                x: e.clientX,
+                                                                                y: e.clientY,
+                                                                            });
+                                                                        }}
+                                                                        onRename={renameSubRecord}
+                                                                        onDelete={deleteSubRecord}
+                                                                        onRequestAdd={() => {
+                                                                            setSubRecordName("");
+                                                                            setSubRecordModal(record);
+                                                                        }}
+                                                                        onResizeColumn={resizeColumn}
+                                                                        onOpenAmendments={openAmendments}
+                                                                        renderCell={({ subRecord, column, recordValue, width }) => (
+                                                                            <Cell
+                                                                                record={subRecord}
+                                                                                column={column}
+                                                                                recordValue={recordValue}
+                                                                                width={width}
+                                                                                workspaceId={workspaceId}
+                                                                                references={moduleReferences[subRecord._id]}
+                                                                                onSave={saveRecordValue}
+                                                                                onAddStatusOption={addStatusOption}
+                                                                                onUpdateStatusOptions={updateColumnStatusOptions}
+                                                                            />
+                                                                        )}
+                                                                    />
+                                                                )}
+                                                            </div>
                                                             ))}
 
                                                             {/* Add record row */}
@@ -1999,8 +2450,8 @@ export default function ModulePage() {
                                                                     ends exactly where every other row does instead of stretching
                                                                     across the whole scroll container. */}
                                                                 <div
-                                                                    className="shrink-0 bg-card border-b border-r border-slate-300"
-                                                                    style={{ width: tableTailWidth }}
+                                                                    className="grow bg-card border-b border-r border-slate-300"
+                                                                    style={{ minWidth: tableTailWidth }}
                                                                 />
                                                             </div>
 
@@ -2208,7 +2659,7 @@ export default function ModulePage() {
                                                                 })}
 
                                                                 {/* Trailing column spacer */}
-                                                                <div className="w-[120px] shrink-0 border-b border-r border-slate-300 rounded-br-lg bg-card" />
+                                                                <div className="min-w-[120px] grow border-b border-r border-slate-300 rounded-br-lg bg-card" />
                                                             </div>
 
 
@@ -2242,7 +2693,8 @@ export default function ModulePage() {
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="px-4 py-2 text-xs font-google-sans text-zinc-600 border-b border-slate-300 cursor-pointer">
-                                Column: <span className="font-bold">{colMenu.columnName}</span>
+                                {colMenu.scope === "subrecord" ? "Sub-record column" : "Column"}:{" "}
+                                <span className="font-bold">{colMenu.columnName}</span>
                             </div>
                             <button
                                 onClick={() => handleCopyColumnId(colMenu.columnId)}
@@ -2265,13 +2717,13 @@ export default function ModulePage() {
                             </button>
                             <button
                                 className="w-full text-left px-4 py-2 text-sm font-google-sans text-zinc-600 hover:bg-zinc-200 transition flex items-center gap-2 cursor-pointer"
-                                onClick={() => openRenameModal({ _id: colMenu.columnId, name: colMenu.columnName })}
+                                onClick={() => openRenameModal({ _id: colMenu.columnId, name: colMenu.columnName, scope: colMenu.scope })}
                             >
                                 <CgRename className="w-4 h-4" /> Rename column
                             </button>
                             <button
                                 className="w-full text-left px-4 py-2 text-sm font-google-sans text-zinc-600 hover:bg-zinc-200 transition flex items-center gap-2 cursor-pointer"
-                                onClick={() => deleteColumn(colMenu.columnId)}
+                                onClick={() => deleteColumn(colMenu.columnId, colMenu.scope)}
                             >
                                 <RiDeleteBin5Line className="w-4 h-4" /> Delete column
                             </button>
@@ -2311,7 +2763,15 @@ export default function ModulePage() {
                     {showColumnModal && (
                         <AddColumnModal
                             open={showColumnModal}
-                            setOpen={setShowColumnModal}
+                            setOpen={(open: boolean) => {
+                                setShowColumnModal(open);
+                                if (!open) setColumnScope("record");
+                            }}
+                            scope={columnScope}
+                            workspaceId={workspaceId}
+                            moduleId={moduleId}
+                            settings={columnSettings}
+                            setSettings={setColumnSettings}
                             columnName={columnName}
                             setColumnName={setColumnName}
                             columnType={columnType}
@@ -2357,6 +2817,19 @@ export default function ModulePage() {
                                 </div>
                             </div>
                         </div>
+                    )}
+
+                    {/* Add Sub-record Modal */}
+                    {subRecordModal && (
+                        <AddSubRecordModal
+                            open={!!subRecordModal}
+                            setOpen={(open) => !open && setSubRecordModal(null)}
+                            parentName={subRecordModal.name}
+                            subRecordName={subRecordName}
+                            setSubRecordName={setSubRecordName}
+                            creating={creatingSubRecord}
+                            createSubRecord={createSubRecord}
+                        />
                     )}
 
                     {/* Collection Menu Dropdown */}
@@ -2410,7 +2883,28 @@ export default function ModulePage() {
                         onCancel={() => setSelectedRecordIds(new Set())}
                         deleting={deletingRecords}
                     />
+
+                    {/* Amendments — the conversation on one record. Portalled and
+                        gated on a state that starts null, so the server and the
+                        first client render both produce nothing (see the
+                        hydration rule in memory.md). Keyed on the record id so
+                        its drafts re-seed per row without a reset effect. */}
+                    <RecordAmendmentsPanel
+                        key={amendmentsRecordId ?? "closed"}
+                        record={amendmentsRecord}
+                        workspaceId={workspaceId}
+                        collectionId={getRecordCollectionId(amendmentsRecord)}
+                        onClose={closeAmendments}
+                    />
                 </div>
+
+                {/* Right rail — Atlas (CRM) and Relay (workflows) */}
+                <AiSidebar
+                    agent="atlas"
+                    context={"this module"}
+                    workspaceId={workspaceId}
+                    moduleId={moduleId}
+                />
             </section>
         </>
     );

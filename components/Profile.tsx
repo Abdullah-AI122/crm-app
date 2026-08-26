@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { getUser, AuthUser } from "@/lib/auth";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getUser, logout as clearSession, AuthUser } from "@/lib/auth";
 import ThemeButton from "./ui/buttons/themebutton";
 import Link from "next/link";
 import { profileLinks } from "@/data/data";
-import { HiOutlineArrowRightOnRectangle, HiOutlineClipboard, HiCheck } from "react-icons/hi2";
+import { HiOutlineArrowRightOnRectangle, HiOutlineClipboard, HiCheck, HiChevronRight } from "react-icons/hi2";
+import { TbHistory } from "react-icons/tb";
+import ActivitySidebar, { openActivityDrawer } from "./ActivitySidebar";
+import PresenceDot from "./ui/helpers/presenceDot";
+import { PRESENCE_OPTIONS, presenceOption, UserStatus } from "@/lib/presence";
+import { usePresence } from "@/store/usePresence";
+import { useAppSelector } from "@/store/hooks";
+import { selectActiveWorkspaceId } from "@/store/selectors/workspace.selectors";
 
 import userAsset from "@/app/assets/user.png";
 
@@ -24,14 +32,35 @@ export default function ProfileDropdown({
     profileImage,
     userName,
 }: ProfileDropdownProps) {
+    const router = useRouter();
     const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // The feed is workspace-scoped; the Sidebar keeps this in sync.
+    const workspaceId = useAppSelector(selectActiveWorkspaceId);
     const [user, setUser] = useState<AuthUser | null>(null);
     const [internalOpen, setInternalOpen] = useState(false);
     const [copying, setCopying] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [statusOpen, setStatusOpen] = useState(false);
+
+    // Also runs the heartbeat that keeps this user marked live — the dropdown is
+    // mounted on every signed-in page, so presence needs no separate provider.
+    const { setStatus, isSaving } = usePresence();
 
     const isOpen = externalOpen !== undefined ? externalOpen : internalOpen;
-    const setIsOpen = externalSetOpen || setInternalOpen;
+    const setOpen = externalSetOpen || setInternalOpen;
+
+    /**
+     * The status picker is a sub-panel of the menu, never a state that outlives
+     * it — so closing the menu folds it back, whichever path closed it.
+     */
+    const setMenuOpen = useCallback(
+        (open: boolean) => {
+            if (!open) setStatusOpen(false);
+            setOpen(open);
+        },
+        [setOpen]
+    );
 
     useEffect(() => {
         setUser(getUser());
@@ -51,7 +80,7 @@ export default function ProfileDropdown({
                 dropdownRef.current &&
                 !dropdownRef.current.contains(event.target as Node)
             ) {
-                setIsOpen(false);
+                setMenuOpen(false);
             }
         }
 
@@ -59,7 +88,23 @@ export default function ProfileDropdown({
 
         return () =>
             document.removeEventListener("mousedown", handleClickOutside);
-    }, [setIsOpen]);
+    }, [setMenuOpen]);
+
+    /**
+     * This dropdown is the only way out of the app, so it must work even when a
+     * caller forgets to pass onLogout. The prop stays as an override.
+     */
+    const handleLogout = () => {
+        setMenuOpen(false);
+
+        if (onLogout) {
+            onLogout();
+            return;
+        }
+
+        clearSession();
+        router.push("/login");
+    };
 
     const handleCopyUid = async () => {
         const uid = user?.id;
@@ -80,10 +125,20 @@ export default function ProfileDropdown({
     const displayImage = profileImage || user?.avatar || userAsset.src;
     const displayName = userName || user?.firstName || "User";
 
+    // Your own badge shows what you picked. Everyone else sees `presence`, which
+    // the server downgrades to offline once your heartbeat goes stale.
+    const myStatus: UserStatus = user?.status ?? "online";
+    const myStatusOption = presenceOption(myStatus);
+
+    const pickStatus = (status: UserStatus) => {
+        setStatusOpen(false);
+        setStatus(status);
+    };
+
     return (
         <div className="relative" ref={dropdownRef}>
             <button
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={() => setMenuOpen(!isOpen)}
                 className="rounded-full overflow-hidden cursor-pointer w-8 h-8 mt-1 border-2 border-avatar-ring transition"
             >
                 <img
@@ -93,8 +148,13 @@ export default function ProfileDropdown({
                 />
             </button>
 
+            {/* Outside the button so the ring is not clipped by its overflow. */}
+            <span className="pointer-events-none absolute bottom-0 right-0 mb-0.5">
+                <PresenceDot status={myStatus} size={11} ringColor="var(--panel)" />
+            </span>
+
             {isOpen && (
-                <div className="absolute right-0 mt-3 w-82 bg-card rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50">
+                <div className="absolute right-0 mt-3 w-96 bg-card rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50">
 
                     <div className="py-2 border-b pl-5 flex items-center justify-between w-full">
                         <div className="flex items-center gap-3 w-full">
@@ -130,18 +190,51 @@ export default function ProfileDropdown({
                                 )}
                             </div>
 
-                            <div className="ml-auto mr-3 flex-shrink-0">
-                                <button
-                                     onClick={() => {
-                                         onLogout?.();
-                                         setIsOpen(false);
-                                     }}
-                                     className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition cursor-pointer"
-                                 >
-                                     <HiOutlineArrowRightOnRectangle size={20} />
-                                 </button>
-                            </div>
                         </div>
+                    </div>
+
+                    {/* Status. The list opens in place instead of as a nested
+                        popover, so it can never land off-screen next to the
+                        already right-aligned menu. */}
+                    <div className="border-b border-gray-200 px-3 py-2 font-google-sans">
+                        <button
+                            onClick={() => setStatusOpen((value) => !value)}
+                            disabled={isSaving}
+                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-gray-50 cursor-pointer disabled:opacity-60"
+                        >
+                            <PresenceDot status={myStatus} size={10} ring={0} />
+                            <span className="flex-1 text-left text-sm text-slate-800">
+                                {myStatusOption.label}
+                            </span>
+                            <HiChevronRight
+                                className={`h-4 w-4 text-gray-400 transition ${statusOpen ? "rotate-90" : ""}`}
+                            />
+                        </button>
+
+                        {statusOpen && (
+                            <div className="mt-1 space-y-0.5">
+                                {PRESENCE_OPTIONS.map((option) => (
+                                    <button
+                                        key={option.value}
+                                        onClick={() => pickStatus(option.value)}
+                                        className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition cursor-pointer ${option.value === myStatus ? "bg-gray-100" : "hover:bg-gray-50"}`}
+                                    >
+                                        <PresenceDot status={option.value} size={10} ring={0} />
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block text-sm text-slate-800">
+                                                {option.label}
+                                            </span>
+                                            <span className="block text-xs text-gray-500">
+                                                {option.hint}
+                                            </span>
+                                        </span>
+                                        {option.value === myStatus && (
+                                            <HiCheck className="h-4 w-4 shrink-0 text-green-600" />
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     <main className="grid grid-cols-2">
@@ -151,7 +244,7 @@ export default function ProfileDropdown({
                                 <Link
                                     href={link.url}
                                     key={link.id}
-                                    onClick={() => setIsOpen(false)}
+                                    onClick={() => setMenuOpen(false)}
                                     className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-50 transition"
                                 >
                                     {link.icon}
@@ -165,8 +258,36 @@ export default function ProfileDropdown({
                         </div>
 
                     </main>
+
+                    {/* Activity lives in its own drawer — the dropdown only
+                        offers the way in, so opening the avatar menu never
+                        fires a feed request. */}
+                    <button
+                        onClick={() => {
+                            setMenuOpen(false);
+                            openActivityDrawer();
+                        }}
+                        className="flex w-full items-center gap-2 border-t border-gray-200 px-5 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-gray-50 cursor-pointer font-google-sans"
+                    >
+                        <TbHistory size={17} className="text-slate-500" />
+                        Activity log
+                    </button>
+
+                    {/* Log out — the app's only exit since the sidebar button was
+                        removed, so it gets a labelled row rather than a bare icon. */}
+                    <button
+                        onClick={handleLogout}
+                        className="flex w-full items-center gap-2 border-t border-gray-200 px-5 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50 cursor-pointer font-google-sans"
+                    >
+                        <HiOutlineArrowRightOnRectangle size={17} />
+                        Log out
+                    </button>
                 </div>
             )}
+
+            {/* Rendered through a portal, so it stays mounted after the
+                dropdown closes and is available wherever the avatar is. */}
+            <ActivitySidebar workspaceId={workspaceId} />
         </div>
     );
 }
